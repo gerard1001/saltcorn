@@ -73,17 +73,20 @@ const changeConnection = async (connObj = Object.create(null)) => {
   pool = new Pool(getConnectObject(connObj));
 };
 
+// TODO remove, not threadsafe
 const begin = async () => {
   client = await getClient();
   await client.query("BEGIN");
 };
 
+// TODO remove, not threadsafe
 const commit = async () => {
   await client.query("COMMIT");
   client.release(true);
   client = null;
 };
 
+// TODO remove, not threadsafe
 const rollback = async () => {
   await client.query("ROLLBACK");
   client.release(true);
@@ -108,7 +111,7 @@ const select = async (tbl, whereObj, selectopts = Object.create(null)) => {
     false
   )}`;
   sql_log(sql, values);
-  const tq = await (client || selectopts.client || pool).query(sql, values);
+  const tq = await (selectopts.client || client || pool).query(sql, values);
 
   return tq.rows;
 };
@@ -119,7 +122,7 @@ const select = async (tbl, whereObj, selectopts = Object.create(null)) => {
  * @param {string} schema - db schema name
  * @returns {Promise<void>} no result
  */
-const drop_reset_schema = async (schema) => {
+const drop_reset_schema = async (schema, qclient) => {
   const sql = `DROP SCHEMA IF EXISTS "${schema}" CASCADE;
   CREATE SCHEMA "${schema}";
   GRANT ALL ON SCHEMA "${schema}" TO postgres;
@@ -127,7 +130,7 @@ const drop_reset_schema = async (schema) => {
   COMMENT ON SCHEMA "${schema}" IS 'standard public schema';`;
   sql_log(sql);
 
-  await pool.query(sql);
+  await (qclient || pool).query(sql);
 };
 
 /**
@@ -136,7 +139,7 @@ const drop_reset_schema = async (schema) => {
  * @param {object} - whereObj - where object
  * @returns {Promise<number>} count of tables
  */
-const count = async (tbl, whereObj) => {
+const count = async (tbl, whereObj, qclient) => {
   const { where, values } = mkWhere(whereObj);
   if (!where) {
     try {
@@ -164,7 +167,7 @@ WHERE  c.oid = '"${getTenantSchema()}"."${sqlsanitize(tbl)}"'::regclass`;
     tbl
   )}" ${where}`;
   sql_log(sql, values);
-  const tq = await (client || pool).query(sql, values);
+  const tq = await (qclient || client || pool).query(sql, values);
 
   return parseInt(tq.rows[0].count);
 };
@@ -200,16 +203,16 @@ const deleteWhere = async (tbl, whereObj, opts = Object.create(null)) => {
   )}" ${where}`;
   sql_log(sql, values);
 
-  const tq = await (client || opts.client || pool).query(sql, values);
+  const tq = await (opts.client || client || pool).query(sql, values);
 
   return tq.rows;
 };
 
-const truncate = async (tbl) => {
+const truncate = async (tbl, qclient) => {
   const sql = `truncate "${getTenantSchema()}"."${sqlsanitize(tbl)}"`;
   sql_log(sql, []);
 
-  const tq = await (client || pool).query(sql, []);
+  const tq = await (qclient || client || pool).query(sql, []);
 
   return tq.rows;
 };
@@ -252,7 +255,7 @@ const insert = async (tbl, obj, opts = Object.create(null)) => {
           tbl
         )}" DEFAULT VALUES returning ${opts.noid ? "*" : ppPK(opts.pk_name)}`;
   sql_log(sql, valList);
-  const { rows } = await (client || opts.client || pool).query(sql, valList);
+  const { rows } = await (opts.client || client || pool).query(sql, valList);
   if (opts.noid) return;
   else if (conflict && rows.length === 0) return;
   else return rows[0][opts.pk_name || "id"];
@@ -280,7 +283,7 @@ const update = async (tbl, obj, id, opts = Object.create(null)) => {
     tbl
   )}" set ${assigns} where ${ppPK(opts.pk_name)}=$${kvs.length + 1}`;
   sql_log(q, valList);
-  await (client || opts.client || pool).query(q, valList);
+  await (opts.client || client || pool).query(q, valList);
 };
 
 /**
@@ -304,7 +307,7 @@ const updateWhere = async (tbl, obj, whereObj, opts = Object.create(null)) => {
     tbl
   )}" set ${assigns} ${where}`;
   sql_log(q, valList);
-  await (client || opts.client || pool).query(q, valList);
+  await (opts.client || client || pool).query(q, valList);
 };
 
 /**
@@ -350,13 +353,13 @@ const getClient = async () => await pool.connect();
  * @param {string} tblname - table name
  * @returns {Promise<void>} no result
  */
-const reset_sequence = async (tblname, pkname = "id") => {
+const reset_sequence = async (tblname, pkname = "id", qclient) => {
   const sql = `SELECT setval(pg_get_serial_sequence('"${getTenantSchema()}"."${sqlsanitize(
     tblname
   )}"', '${pkname}'), coalesce(max("${pkname}"),0) + 1, false) FROM "${getTenantSchema()}"."${sqlsanitize(
     tblname
   )}";`;
-  await (client || pool).query(sql);
+  await (qclient || client || pool).query(sql);
 };
 
 /**
@@ -365,7 +368,7 @@ const reset_sequence = async (tblname, pkname = "id") => {
  * @param {string[]} field_names - list of columns (members of constraint)
  * @returns {Promise<void>} no result
  */
-const add_unique_constraint = async (table_name, field_names) => {
+const add_unique_constraint = async (table_name, field_names, qclient) => {
   // TBD check that there are no problems with lenght of constraint name
   const sql = `alter table "${getTenantSchema()}"."${sqlsanitize(
     table_name
@@ -375,7 +378,7 @@ const add_unique_constraint = async (table_name, field_names) => {
     .map((f) => `"${sqlsanitize(f)}"`)
     .join(",")});`;
   sql_log(sql);
-  await pool.query(sql);
+  await (qclient || pool).query(sql);
 };
 
 /**
@@ -384,7 +387,7 @@ const add_unique_constraint = async (table_name, field_names) => {
  * @param {string[]} field_names - list of columns (members of constraint)
  * @returns {Promise<void>} no results
  */
-const drop_unique_constraint = async (table_name, field_names) => {
+const drop_unique_constraint = async (table_name, field_names, qclient) => {
   // TBD check that there are no problems with lenght of constraint name
   const sql = `alter table "${getTenantSchema()}"."${sqlsanitize(
     table_name
@@ -392,7 +395,7 @@ const drop_unique_constraint = async (table_name, field_names) => {
     .map((f) => sqlsanitize(f))
     .join("_")}_unique";`;
   sql_log(sql);
-  await pool.query(sql);
+  await (qclient || pool).query(sql);
 };
 
 /**
@@ -401,7 +404,7 @@ const drop_unique_constraint = async (table_name, field_names) => {
  * @param {string} field_name - list of columns (members of constraint)
  * @returns {Promise<void>} no result
  */
-const add_index = async (table_name, field_name) => {
+const add_index = async (table_name, field_name, qclient) => {
   // TBD check that there are no problems with lenght of constraint name
   const sql = `create index "${sqlsanitize(table_name)}_${sqlsanitize(
     field_name
@@ -409,7 +412,7 @@ const add_index = async (table_name, field_name) => {
     table_name
   )}" ("${sqlsanitize(field_name)}");`;
   sql_log(sql);
-  await pool.query(sql);
+  await (qclient || pool).query(sql);
 };
 
 /**
@@ -418,7 +421,12 @@ const add_index = async (table_name, field_name) => {
  * @param {string} field_name - list of columns (members of constraint)
  * @returns {Promise<void>} no result
  */
-const add_fts_index = async (table_name, field_expression, language) => {
+const add_fts_index = async (
+  table_name,
+  field_expression,
+  language,
+  qclient
+) => {
   // TBD check that there are no problems with lenght of constraint name
   const sql = `create index "${sqlsanitize(
     table_name
@@ -428,15 +436,15 @@ const add_fts_index = async (table_name, field_expression, language) => {
     language || "english"
   }', ${field_expression}));`;
   sql_log(sql);
-  await pool.query(sql);
+  await (qclient || pool).query(sql);
 };
-const drop_fts_index = async (table_name) => {
+const drop_fts_index = async (table_name, qclient) => {
   // TBD check that there are no problems with lenght of constraint name
   const sql = `drop index "${getTenantSchema()}"."${sqlsanitize(
     table_name
   )}_fts_index";`;
   sql_log(sql);
-  await pool.query(sql);
+  await (qclient || pool).query(sql);
 };
 
 /**
@@ -445,13 +453,13 @@ const drop_fts_index = async (table_name) => {
  * @param {string} field_name - list of columns (members of constraint)
  * @returns {Promise<void>} no result
  */
-const drop_index = async (table_name, field_name) => {
+const drop_index = async (table_name, field_name, qclient) => {
   // TBD check that there are no problems with lenght of constraint name
   const sql = `drop index "${getTenantSchema()}"."${sqlsanitize(
     table_name
   )}_${sqlsanitize(field_name)}_index";`;
   sql_log(sql);
-  await pool.query(sql);
+  await (qclient || pool).query(sql);
 };
 
 /**
@@ -540,9 +548,9 @@ const postgresExports = {
    * @param {object} params
    * @returns {object}
    */
-  query: (text, params) => {
+  query: (text, params, qclient) => {
     sql_log(text, params);
-    return (client || pool).query(text, params);
+    return (qclient || client || pool).query(text, params);
   },
   begin,
   commit,
