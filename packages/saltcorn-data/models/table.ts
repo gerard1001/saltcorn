@@ -312,7 +312,7 @@ class Table implements AbstractTable {
     Object.assign(t, tbl);
     t.update = async (upd_rec: any) => {
       const { fields, constraints, ...updDB } = upd_rec;
-      await db.update("_sc_tables", updDB, tbl.id);
+      await db.update("_sc_tables", updDB, tbl.id, { client: this.client });
       await require("../db/state").getState().refresh_tables();
     };
     t.delete = async (upd_rec: any) => {
@@ -697,7 +697,7 @@ class Table implements AbstractTable {
    */
   static async create(
     name: string,
-    options: SelectOptions | TablePack = {}, //TODO not selectoptions
+    options: (SelectOptions | TablePack) & { client?: any } = {}, //TODO not selectoptions
     id?: number
   ): Promise<Table> {
     const { pk_type, pk_sql_type } = Table.pkSqlType(options.fields);
@@ -726,7 +726,7 @@ class Table implements AbstractTable {
     let pk_fld_id;
     if (!id) {
       // insert table definition into _sc_tables
-      id = await db.insert("_sc_tables", tblrow);
+      id = await db.insert("_sc_tables", tblrow, options.client);
       // add primary key column ID
       if (!options.provider_name) {
         const insfldres = await db.query(
@@ -1547,6 +1547,7 @@ class Table implements AbstractTable {
         stringified = true;
         await db.update(this.name, v, id, {
           pk_name,
+          client: this.client,
           ...sqliteJsonCols,
         });
         updated = await this.getJoinedRow({
@@ -1611,6 +1612,7 @@ class Table implements AbstractTable {
     if (!stringified) this.stringify_json_fields(v);
     await db.update(this.name, v, id, {
       pk_name,
+      client: this.client,
       ...sqliteJsonCols,
     });
 
@@ -1659,13 +1661,14 @@ class Table implements AbstractTable {
 
     if (retry < 3) {
       try {
-        await db.insert(this.name + "__history", v1);
+        await db.insert(this.name + "__history", v1, { client: this.client });
       } catch (error) {
         await this.insert_history_row(v1, retry + 1);
       }
     } else {
       await db.insert(this.name + "__history", v1, {
         onConflictDoNothing: true,
+        client: this.client,
       });
     }
   }
@@ -1950,7 +1953,11 @@ class Table implements AbstractTable {
         `Inserting ${this.name} because join fields: ${JSON.stringify(v_in)}`
       );
       this.stringify_json_fields(v_in);
-      id = await db.insert(this.name, v_in, { pk_name, ...sqliteJsonCols });
+      id = await db.insert(this.name, v_in, {
+        pk_name,
+        client: this.client,
+        ...sqliteJsonCols,
+      });
       let existing = await this.getJoinedRows({
         where: { [pk_name]: id },
         joinFields,
@@ -1979,13 +1986,18 @@ class Table implements AbstractTable {
         6,
         `Updating ${this.name} because join fields: ${JSON.stringify(v_in)}`
       );
-      await db.update(this.name, v, id, { pk_name, ...sqliteJsonCols });
+      await db.update(this.name, v, id, {
+        pk_name,
+        client: this.client,
+        ...sqliteJsonCols,
+      });
     } else {
       v = await apply_calculated_fields_stored(v_in, fields, this);
       this.stringify_json_fields(v);
       state.log(6, `Inserting ${this.name} row: ${JSON.stringify(v)}`);
       id = await db.insert(this.name, v, {
         pk_name,
+        client: this.client,
         ...sqliteJsonCols,
       });
     }
@@ -2608,7 +2620,7 @@ class Table implements AbstractTable {
       throw new Error(`Unable to find table with id: ${this.id}`);
     }
     const { external, fields, constraints, client, ...upd_rec } = new_table_rec;
-    await db.update("_sc_tables", upd_rec, this.id);
+    await db.update("_sc_tables", upd_rec, this.id, { client: this.client });
     await require("../db/state").getState().refresh_tables();
 
     const new_table = Table.findOne({ id: this.id });
