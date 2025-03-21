@@ -2607,7 +2607,7 @@ class Table implements AbstractTable {
     if (!existing) {
       throw new Error(`Unable to find table with id: ${this.id}`);
     }
-    const { external, fields, constraints, ...upd_rec } = new_table_rec;
+    const { external, fields, constraints, client, ...upd_rec } = new_table_rec;
     await db.update("_sc_tables", upd_rec, this.id);
     await require("../db/state").getState().refresh_tables();
 
