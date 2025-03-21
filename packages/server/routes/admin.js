@@ -307,7 +307,12 @@ router.get(
         .replace(/^(\.\.(\/|\\|$))+/, "");
       const fullpath = path.join(location, "help", safeFile);
       if (fs.existsSync(fullpath)) {
-        const { markup } = await get_help_markup(fullpath, req.query, req, true);
+        const { markup } = await get_help_markup(
+          fullpath,
+          req.query,
+          req,
+          true
+        );
 
         res.sendWrap(`Help: ${topic}`, { above: [markup] });
       } else {
@@ -753,11 +758,13 @@ router.post(
       );
     }
     res.redirect(
-      type === "trigger"
-        ? `/actions`
-        : /^[a-z]+$/g.test(type)
-          ? `/${type}edit`
-          : "/"
+      type == "codepage"
+        ? `/admin/edit-codepage/${name}`
+        : type === "trigger"
+          ? `/actions`
+          : /^[a-z]+$/g.test(type)
+            ? `/${type}edit`
+            : "/"
     );
   })
 );
@@ -1140,6 +1147,7 @@ router.post(
       else
         req.flash("success", req.__("No changes detected, snapshot skipped"));
     } catch (e) {
+      console.error(e);
       req.flash("error", e.message);
     }
     res.json({ reload_page: true });
@@ -1636,6 +1644,7 @@ const doInstall = async (req, res, version, deepClean, runPull) => {
       try {
         await cleanNodeModules();
       } catch (e) {
+        console.error(e);
         res_write(req.__("Error cleaning node_modules: %s\n", e.message));
       }
     }
@@ -1896,6 +1905,7 @@ router.post(
           notify: "Certificate added, please restart server",
         });
       } catch (e) {
+        console.error(e);
         res.json({ error: e.message });
       }
     } else {
@@ -1983,6 +1993,7 @@ router.post(
         );
         res.redirect("/useradmin/ssl");
       } catch (e) {
+        console.error(e);
         req.flash("error", e.message);
         res.redirect("/useradmin/ssl");
       }
@@ -4098,15 +4109,6 @@ router.get(
       values: { code: existing },
       noSubmitButton: true,
       labelCols: 0,
-      additionalButtons: [
-        {
-          label: req.__("Delete code page"),
-          class: "btn btn-outline-danger btn-sm",
-          onclick: `if(confirm('Are you sure you would like to delete this code page?'))ajax_post('/admin/delete-codepage/${encodeURIComponent(
-            name
-          )}')`,
-        },
-      ],
       fields: [
         {
           name: "code",
@@ -4123,7 +4125,7 @@ router.get(
             ),
           input_type: "code",
           attributes: { mode: "text/javascript" },
-          class: "validate-statements",
+          class: "validate-statements enlarge-in-card",
           validator(s) {
             try {
               let AsyncFunction = Object.getPrototypeOf(
@@ -4143,7 +4145,8 @@ router.get(
       {}
     );
     const tags = await Tag.find();
-    const tagMarkup = div(
+    const tagMarkup = span(
+      { class: "ms-1" },
       "Tags:",
       (function_code_pages_tags[name] || []).map((tagnm) =>
         span(
@@ -4205,7 +4208,28 @@ router.get(
       contents: {
         type: "card",
         title: req.__(`%s code page`, name),
-        contents: [renderForm(form, req.csrfToken()), tagMarkup],
+        contents: [
+          renderForm(form, req.csrfToken()),
+          a(
+            {
+              href: `javascript:if(confirm('Are you sure you would like to delete this code page?'))ajax_post('/admin/delete-codepage/${encodeURIComponent(
+                name
+              )}')`,
+              class: "me-1 text-danger",
+            },
+            req.__("Delete code page")
+          ),
+          " | ",
+          a(
+            {
+              href: `javascript:ajax_modal('/admin/snapshot-restore/codepage/${name}')`,
+              class: "ms-1 me-1",
+            },
+            req.__("Restore")
+          ),
+          " | ",
+          tagMarkup,
+        ],
       },
     });
   })
@@ -4223,9 +4247,9 @@ router.post(
       ...code_pages,
       [name]: code,
     });
-    await getState().refresh_codepages();
-
-    res.json({ success: true });
+    const err = await getState().refresh_codepages();
+    if (err) res.json({ success: false, error: `Error evaluating code pages: ${err}` });
+    else res.json({ success: true });
   })
 );
 router.post(

@@ -597,6 +597,7 @@ function get_form_record(e_in, select_labels) {
       $(e_in).prop("data-join-values", {});
       const keyVals = {};
       for (const { ref, target, refTable } of joinFields) {
+        if (!rec[ref]) continue;
         keyVals[ref] = rec[ref];
         $.ajax(`/api/${refTable}?id=${rec[ref]}`, {
           success: (val) => {
@@ -1193,6 +1194,7 @@ function initialize_page() {
           if (_sc_lightmode === "dark") cmOpts.theme = "blackboard";
           const cm = CodeMirror.fromTextArea(el, cmOpts);
           $(el).addClass("codemirror-enabled");
+          if ($(el).hasClass("enlarge-in-card")) enlarge_in_code($(el), cm);
           cm.on(
             "change",
             $.debounce(
@@ -1294,6 +1296,22 @@ function initialize_page() {
 }
 
 $(initialize_page);
+
+function enlarge_in_code($textarea, cm) {
+  const $card = $textarea.closest("div.card");
+  if (!$card.length) return;
+  const cardTop = $card.position().top;
+  const cardHeight = $card.height();
+  const vh = $(window).height();
+  const cmHeight = cm.getWrapperElement().offsetHeight;
+  const newCardHeight = vh - cardTop - 35;
+  if (newCardHeight > cardHeight) {
+    const extending = newCardHeight - cardHeight;
+    cm.setSize("100%", `${cmHeight + extending}px`);
+    cm.refresh();
+    $card.css("min-height", newCardHeight + "px");
+  }
+}
 
 function cancel_inline_edit(e, opts1) {
   var opts = JSON.parse(decodeURIComponent(opts1 || "") || "{}");
@@ -1563,7 +1581,7 @@ function notifyAlert(note, spin) {
     type = "info";
     txt = JSON.stringify(note, null, 2);
   }
-  
+
   const { id, html } = buildToast(txt, type, spin, note.toast_title);
   let $modal = $("#scmodal");
   if ($modal.length && $modal.hasClass("show"))
