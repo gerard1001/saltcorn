@@ -2584,8 +2584,7 @@ class Table implements AbstractTable {
     const schemaPrefix = db.getTenantSchemaPrefix();
 
     await db.query(
-      `
-      delete from ${schemaPrefix}"${sqlsanitize(this.name)}__history" 
+      `delete from ${schemaPrefix}"${sqlsanitize(this.name)}__history" 
         where (${sqlsanitize(this.pk_name)}, _version) in (
           select h1.${sqlsanitize(this.pk_name)}, h1._version
           FROM ${schemaPrefix}"${sqlsanitize(this.name)}__history" h1
@@ -2610,8 +2609,7 @@ class Table implements AbstractTable {
     const schemaPrefix = db.getTenantSchemaPrefix();
 
     await db.query(
-      `
-      drop table ${schemaPrefix}"${sqlsanitize(this.name)}__history";`,
+      `drop table ${schemaPrefix}"${sqlsanitize(this.name)}__history";`,
       [],
       this.client
     );
