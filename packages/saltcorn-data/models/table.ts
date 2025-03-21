@@ -2377,7 +2377,10 @@ class Table implements AbstractTable {
         theFields = table.fields;
       }
       return field;
-    } else return fields.find((f) => f.name === path);
+    } else {
+      const field = fields.find((f) => f.name === path);
+      if (field) return new Field({ ...field, table: this });
+    }
   }
 
   /**

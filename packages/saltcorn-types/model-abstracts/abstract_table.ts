@@ -10,6 +10,7 @@ export interface AbstractTable {
   fields: AbstractField[];
   getTags(): Promise<Array<AbstractTag>>;
   getForeignTables(): Promise<Array<AbstractTable>>;
+  client?: any
 }
 
 /**
