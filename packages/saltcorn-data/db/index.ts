@@ -61,6 +61,13 @@ const dbExports: any = {
   isSQLite,
   is_node,
   ...dbModule,
+  ...(dbModule.withTransaction
+    ? {}
+    : {
+        async withTransaction(f: Function) {
+          return await f(dbModule);
+        },
+      }),
   mkWhere: (q: Where) => mkWhere(q, isSQLite),
   getTenantSchemaPrefix,
   reset,

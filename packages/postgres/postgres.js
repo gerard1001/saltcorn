@@ -255,7 +255,7 @@ const insert = async (tbl, obj, opts = Object.create(null)) => {
       : `insert into "${schema}"."${sqlsanitize(
           tbl
         )}" DEFAULT VALUES returning ${opts.noid ? "*" : ppPK(opts.pk_name)}`;
-  sql_log(sql, valList, opts.client );
+  sql_log(sql, valList, opts.client);
   const { rows } = await (opts.client || client || pool).query(sql, valList);
   if (opts.noid) return;
   else if (conflict && rows.length === 0) return;
@@ -542,6 +542,25 @@ const listScTables = async () => {
   });
 };
 
+const withTransaction = async (f) => {
+  const client = getClient();
+  sql_log("BEGIN;", null, client);
+  await client.query("BEGIN;");
+  let result;
+  try {
+    result = await f(client);
+    sql_log("COMMIT;", null, client);
+    await client.query("COMMIT;");
+    await client.release(true);
+  } catch (error) {
+    sql_log("ROLLBACK;", null, client);
+    await client.query("ROLLBACK;");
+    await client.release(true);
+    throw error;
+  }
+  return result;
+};
+
 const postgresExports = {
   pool,
   /**
@@ -554,6 +573,7 @@ const postgresExports = {
     return (qclient || client || pool).query(text, params);
   },
   begin,
+  withTransaction,
   commit,
   rollback,
   select,
