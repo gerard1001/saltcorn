@@ -534,7 +534,7 @@ router.post(
       { session: false },
       async function (err, user, info) {
         if (accessAllowedWrite(req, user, table)) {
-          db.withTransaction(async (client) => {
+          await db.withTransaction(async (client) => {
             table.client = client;
             const { _versions, ...row } = req.body || {};
             const fields = table.getFields();
@@ -591,7 +591,7 @@ router.post(
       { session: false },
       async function (err, user, info) {
         if (accessAllowedWrite(req, user, table)) {
-          db.withTransaction(async (client) => {
+          await db.withTransaction(async (client) => {
             table.client = client;
 
             try {
@@ -646,7 +646,7 @@ router.post(
       { session: false },
       async function (err, user, info) {
         if (accessAllowedWrite(req, user, table)) {
-          db.withTransaction(async (client) => {
+          await db.withTransaction(async (client) => {
             table.client = client;
             const { _versions, ...row } = req.body || {};
             const fields = table.getFields();
@@ -706,7 +706,7 @@ router.delete(
       async function (err, user, info) {
         if (accessAllowedWrite(req, user, table)) {
           try {
-            db.withTransaction(async (client) => {
+            await db.withTransaction(async (client) => {
               table.client = client;
 
               if (id === "undefined") {

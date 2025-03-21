@@ -1226,7 +1226,7 @@ router.post(
   "/",
   isAdminOrHasConfigMinRole("min_role_edit_tables"),
   error_catcher(async (req, res) => {
-    db.withTransaction(async (client) => {
+    await db.withTransaction(async (client) => {
       const v = req.body || {};
       if (typeof v.id === "undefined" && typeof v.external === "undefined") {
         // insert
@@ -1319,6 +1319,7 @@ router.post(
         } else res.json({ success: "ok", notify });
       }
     });
+    await getState().refresh_tables();
   })
 );
 
