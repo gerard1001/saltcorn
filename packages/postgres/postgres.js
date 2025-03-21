@@ -51,8 +51,8 @@ function get_sql_logging() {
 function sql_log(sql, vs, client) {
   const tmarker = client ? "[T] " : "";
   if (log_sql_enabled)
-    if (vs) console.log(tmarker + sql);
-    else console.log(tmarker + sql, vs);
+    if (vs) console.log(tmarker + sql, vs);
+    else console.log(tmarker + sql);
 }
 
 /**
@@ -543,7 +543,7 @@ const listScTables = async () => {
 };
 
 const withTransaction = async (f) => {
-  const client = getClient();
+  const client = await getClient();
   sql_log("BEGIN;", null, client);
   await client.query("BEGIN;");
   let result;
