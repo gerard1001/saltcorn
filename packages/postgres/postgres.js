@@ -48,10 +48,11 @@ function get_sql_logging() {
  * @param {string} sql - SQL statement
  * @param {object} [vs] - any additional parameter
  */
-function sql_log(sql, vs) {
+function sql_log(sql, vs, client) {
+  const tmarker = client ? "[T] " : "";
   if (log_sql_enabled)
-    if (typeof vs === "undefined") console.log(sql);
-    else console.log(sql, vs);
+    if (vs) console.log(tmarker + sql);
+    else console.log(tmarker + sql, vs);
 }
 
 /**
@@ -110,7 +111,7 @@ const select = async (tbl, whereObj, selectopts = Object.create(null)) => {
     values,
     false
   )}`;
-  sql_log(sql, values);
+  sql_log(sql, values, selectopts.client);
   const tq = await (selectopts.client || client || pool).query(sql, values);
 
   return tq.rows;
@@ -128,7 +129,7 @@ const drop_reset_schema = async (schema, qclient) => {
   GRANT ALL ON SCHEMA "${schema}" TO postgres;
   GRANT ALL ON SCHEMA "${schema}" TO "public" ;
   COMMENT ON SCHEMA "${schema}" IS 'standard public schema';`;
-  sql_log(sql);
+  sql_log(sql, null, qclient);
 
   await (qclient || pool).query(sql);
 };
@@ -154,7 +155,7 @@ const count = async (tbl, whereObj, qclient) => {
        )::bigint
 FROM   pg_catalog.pg_class c
 WHERE  c.oid = '"${getTenantSchema()}"."${sqlsanitize(tbl)}"'::regclass`;
-      sql_log(sql);
+      sql_log(sql, null, qclient);
       const tq = await (client || pool).query(sql, []);
       const n = +tq.rows[0].int8;
       if (n && n > 10000) return n;
@@ -166,7 +167,7 @@ WHERE  c.oid = '"${getTenantSchema()}"."${sqlsanitize(tbl)}"'::regclass`;
   const sql = `SELECT COUNT(*) FROM "${getTenantSchema()}"."${sqlsanitize(
     tbl
   )}" ${where}`;
-  sql_log(sql, values);
+  sql_log(sql, values, qclient);
   const tq = await (qclient || client || pool).query(sql, values);
 
   return parseInt(tq.rows[0].count);
@@ -201,7 +202,7 @@ const deleteWhere = async (tbl, whereObj, opts = Object.create(null)) => {
   const sql = `delete FROM "${getTenantSchema()}"."${sqlsanitize(
     tbl
   )}" ${where}`;
-  sql_log(sql, values);
+  sql_log(sql, values, opts.client);
 
   const tq = await (opts.client || client || pool).query(sql, values);
 
@@ -210,7 +211,7 @@ const deleteWhere = async (tbl, whereObj, opts = Object.create(null)) => {
 
 const truncate = async (tbl, qclient) => {
   const sql = `truncate "${getTenantSchema()}"."${sqlsanitize(tbl)}"`;
-  sql_log(sql, []);
+  sql_log(sql, [], qclient);
 
   const tq = await (qclient || client || pool).query(sql, []);
 
@@ -254,7 +255,7 @@ const insert = async (tbl, obj, opts = Object.create(null)) => {
       : `insert into "${schema}"."${sqlsanitize(
           tbl
         )}" DEFAULT VALUES returning ${opts.noid ? "*" : ppPK(opts.pk_name)}`;
-  sql_log(sql, valList);
+  sql_log(sql, valList, opts.client );
   const { rows } = await (opts.client || client || pool).query(sql, valList);
   if (opts.noid) return;
   else if (conflict && rows.length === 0) return;
@@ -282,7 +283,7 @@ const update = async (tbl, obj, id, opts = Object.create(null)) => {
   const q = `update "${getTenantSchema()}"."${sqlsanitize(
     tbl
   )}" set ${assigns} where ${ppPK(opts.pk_name)}=$${kvs.length + 1}`;
-  sql_log(q, valList);
+  sql_log(q, valList, opts.client);
   await (opts.client || client || pool).query(q, valList);
 };
 
@@ -306,7 +307,7 @@ const updateWhere = async (tbl, obj, whereObj, opts = Object.create(null)) => {
   const q = `update "${getTenantSchema()}"."${sqlsanitize(
     tbl
   )}" set ${assigns} ${where}`;
-  sql_log(q, valList);
+  sql_log(q, valList, opts.client);
   await (opts.client || client || pool).query(q, valList);
 };
 
@@ -377,7 +378,7 @@ const add_unique_constraint = async (table_name, field_names, qclient) => {
     .join("_")}_unique" UNIQUE (${field_names
     .map((f) => `"${sqlsanitize(f)}"`)
     .join(",")});`;
-  sql_log(sql);
+  sql_log(sql, null, qclient);
   await (qclient || pool).query(sql);
 };
 
@@ -394,7 +395,7 @@ const drop_unique_constraint = async (table_name, field_names, qclient) => {
   )}" drop CONSTRAINT "${sqlsanitize(table_name)}_${field_names
     .map((f) => sqlsanitize(f))
     .join("_")}_unique";`;
-  sql_log(sql);
+  sql_log(sql, null, qclient);
   await (qclient || pool).query(sql);
 };
 
@@ -411,7 +412,7 @@ const add_index = async (table_name, field_name, qclient) => {
   )}_index" on "${getTenantSchema()}"."${sqlsanitize(
     table_name
   )}" ("${sqlsanitize(field_name)}");`;
-  sql_log(sql);
+  sql_log(sql, null, qclient);
   await (qclient || pool).query(sql);
 };
 
@@ -435,7 +436,7 @@ const add_fts_index = async (
   )}" USING GIN (to_tsvector('${
     language || "english"
   }', ${field_expression}));`;
-  sql_log(sql);
+  sql_log(sql, null, qclient);
   await (qclient || pool).query(sql);
 };
 const drop_fts_index = async (table_name, qclient) => {
@@ -443,7 +444,7 @@ const drop_fts_index = async (table_name, qclient) => {
   const sql = `drop index "${getTenantSchema()}"."${sqlsanitize(
     table_name
   )}_fts_index";`;
-  sql_log(sql);
+  sql_log(sql, null, qclient);
   await (qclient || pool).query(sql);
 };
 
@@ -458,7 +459,7 @@ const drop_index = async (table_name, field_name, qclient) => {
   const sql = `drop index "${getTenantSchema()}"."${sqlsanitize(
     table_name
   )}_${sqlsanitize(field_name)}_index";`;
-  sql_log(sql);
+  sql_log(sql, null, qclient);
   await (qclient || pool).query(sql);
 };
 
@@ -475,7 +476,7 @@ const copyFrom = async (fileStream, tableName, fieldNames, client) => {
   const sql = `COPY "${getTenantSchema()}"."${sqlsanitize(
     tableName
   )}" (${fieldNames.map(quote).join(",")}) FROM STDIN CSV HEADER`;
-  sql_log(sql);
+  sql_log(sql, null, client);
 
   const stream = client.query(copyStreams.from(sql));
   return await pipeline(fileStream, stream);
@@ -484,7 +485,7 @@ const copyFrom = async (fileStream, tableName, fieldNames, client) => {
 const copyToJson = async (fileStream, tableName, client) => {
   const sql = `COPY (SELECT (row_to_json("${sqlsanitize(tableName)}".*) || ',')
   FROM "${getTenantSchema()}"."${sqlsanitize(tableName)}") TO STDOUT`;
-  sql_log(sql);
+  sql_log(sql, null, client);
   const stream = (client || pool).query(copyStreams.to(sql));
 
   return await pipeline(stream, replace("\\\\", "\\"), fileStream);
@@ -549,7 +550,7 @@ const postgresExports = {
    * @returns {object}
    */
   query: (text, params, qclient) => {
-    sql_log(text, params);
+    sql_log(text, params, qclient);
     return (qclient || client || pool).query(text, params);
   },
   begin,
