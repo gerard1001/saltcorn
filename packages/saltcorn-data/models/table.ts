@@ -255,6 +255,9 @@ class Table implements AbstractTable {
 
   /** Configuration for the table provider for this table */
   provider_cfg?: Row;
+
+  /** Database Client, to maintain a transation */
+  client?: any;
   /**
    * Table constructor
    * @param {object} o
@@ -274,7 +277,7 @@ class Table implements AbstractTable {
     this.constraints = o.constraints || [];
     this.provider_cfg = stringToJSON(o.provider_cfg);
     this.provider_name = o.provider_name;
-
+    this.client = o.client;
     this.fields = o.fields.map((f) => new Field(f));
   }
 

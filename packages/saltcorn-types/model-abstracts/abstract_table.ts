@@ -14,7 +14,7 @@ export interface AbstractTable {
 
 /**
  * Fields required to construct a table
- * 
+ *
  */
 export type TableCfg = {
   name: string;
@@ -31,6 +31,7 @@ export type TableCfg = {
   constraints?: any[];
   provider_name?: string;
   provider_cfg?: any;
+  client?: any;
 };
 
 export type TablePack = {

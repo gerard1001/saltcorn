@@ -509,6 +509,7 @@ const install_pack = async (
           triggers,
           constraints,
           fields,
+          client,
           ...updrow
         } = tableSpec;
 
