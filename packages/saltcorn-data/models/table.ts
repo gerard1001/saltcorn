@@ -2673,30 +2673,24 @@ class Table implements AbstractTable {
   async update(new_table_rec: Partial<Table>): Promise<void> {
     if (new_table_rec.ownership_field_id === ("" as any))
       delete new_table_rec.ownership_field_id;
-    const existing = Table.findOne({ id: this.id });
-    if (!existing) {
-      throw new Error(`Unable to find table with id: ${this.id}`);
-    }
+    const existing = this; //Table.findOne({ id: this.id });
+
     const { external, fields, constraints, client, ...upd_rec } = new_table_rec;
     await db.update("_sc_tables", upd_rec, this.id, { client: this.client });
-    await require("../db/state").getState().refresh_tables();
 
-    const new_table = Table.findOne({ id: this.id });
-    if (!new_table) {
-      throw new Error(`Unable to find table with id: ${this.id}`);
-    } else {
-      if (new_table.versioned && !existing.versioned) {
-        await new_table.create_history_table();
-      } else if (!new_table.versioned && existing.versioned) {
-        await new_table.drop_history_table();
-      }
-      if (new_table.has_sync_info && !existing.has_sync_info) {
-        await this.create_sync_info_table();
-      } else if (!new_table.has_sync_info && existing.has_sync_info) {
-        await new_table.drop_sync_table();
-      }
-      Object.assign(this, new_table_rec);
+    const new_table = new Table({ ...this, ...upd_rec } as TableCfg);
+
+    if (new_table.versioned && !existing.versioned) {
+      await new_table.create_history_table();
+    } else if (!new_table.versioned && existing.versioned) {
+      await new_table.drop_history_table();
     }
+    if (new_table.has_sync_info && !existing.has_sync_info) {
+      await this.create_sync_info_table();
+    } else if (!new_table.has_sync_info && existing.has_sync_info) {
+      await new_table.drop_sync_table();
+    }
+    Object.assign(this, new_table_rec);
   }
 
   /**
