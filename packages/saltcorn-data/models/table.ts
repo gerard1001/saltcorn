@@ -397,7 +397,8 @@ class Table implements AbstractTable {
     const _TableConstraint = (await import("./table_constraints")).default;
 
     const constraints = await _TableConstraint.find(
-      db.isSQLite ? {} : { table_id: { in: tbls.map((t: TableCfg) => t.id) } }
+      db.isSQLite ? {} : { table_id: { in: tbls.map((t: TableCfg) => t.id) } },
+      { client: selectopts.client }
     );
 
     return await asyncMap(tbls, async (t: TableCfg) => {
@@ -697,7 +698,7 @@ class Table implements AbstractTable {
    */
   static async create(
     name: string,
-    options: (SelectOptions | TablePack) & { client?: any } = {}, //TODO not selectoptions
+    options: SelectOptions | TablePack = {}, //TODO not selectoptions
     id?: number
   ): Promise<Table> {
     const { pk_type, pk_sql_type } = Table.pkSqlType(options.fields);
@@ -728,7 +729,7 @@ class Table implements AbstractTable {
     let pk_fld_id;
     if (!id) {
       // insert table definition into _sc_tables
-      id = await db.insert("_sc_tables", tblrow, options.client);
+      id = await db.insert("_sc_tables", tblrow, { client: options.client });
       // add primary key column ID
       if (!options.provider_name) {
         const insfldres = await db.query(
@@ -762,13 +763,14 @@ class Table implements AbstractTable {
       id,
       fields,
     });
+    table.client = options.client;
 
     // create table history
     if (table?.versioned) await table.create_history_table();
     // create sync info
     if (table.has_sync_info) await table.create_sync_info_table();
     // refresh tables cache
-    await require("../db/state").getState().refresh_tables();
+    //await require("../db/state").getState().refresh_tables();
 
     return table;
   }
@@ -822,39 +824,37 @@ class Table implements AbstractTable {
     const schema = db.getTenantSchemaPrefix();
     const is_sqlite = db.isSQLite;
     await this.update({ ownership_field_id: null });
-    const client = is_sqlite ? db : await db.getClient();
-    await client.query(`BEGIN`);
-    try {
-      // drop table
-      if (!only_forget)
-        await client.query(
-          `drop table if exists ${schema}"${sqlsanitize(this.name)}"`
-        );
-      // delete tag entries from _sc_tag_entries
-      await db.deleteWhere("_sc_tag_entries", { table_id: this.id });
-      // delete fields
-      await client.query(
-        `delete FROM ${schema}_sc_fields WHERE table_id = $1`,
-        [this.id]
-      );
-      // delete table description
-      await client.query(`delete FROM ${schema}_sc_tables WHERE id = $1`, [
-        this.id,
-      ]);
-      // delete versioned table
-      if (this.versioned)
-        await client.query(
-          `drop table if exists ${schema}"${sqlsanitize(this.name)}__history"`
-        );
 
-      await client.query(`COMMIT`);
-    } catch (e) {
-      await client.query(`ROLLBACK`);
-      if (!is_sqlite) client.release(true);
-      throw e;
-    }
-    if (!is_sqlite) client.release(true);
-    await require("../db/state").getState().refresh_tables();
+    const client = this.client;
+
+    // drop table
+    if (!only_forget)
+      await db.query(
+        `drop table if exists ${schema}"${sqlsanitize(this.name)}"`,
+        [],
+        client
+      );
+    // delete tag entries from _sc_tag_entries
+    await db.deleteWhere("_sc_tag_entries", { table_id: this.id }, { client });
+    // delete fields
+    await db.query(
+      `delete FROM ${schema}_sc_fields WHERE table_id = $1`,
+      [this.id],
+      client
+    );
+    // delete table description
+    await db.query(
+      `delete FROM ${schema}_sc_tables WHERE id = $1`,
+      [this.id],
+      client
+    );
+    // delete versioned table
+    if (this.versioned)
+      await db.query(
+        `drop table if exists ${schema}"${sqlsanitize(this.name)}__history"`,
+        [],
+        client
+      );
   }
 
   /***

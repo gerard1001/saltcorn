@@ -680,6 +680,7 @@ export type SelectOptions = {
   has_sync_info?: boolean;
   description?: string;
   recursive?: boolean; // for File.find()
+  client?: any;
 };
 export const orderByIsObject = (
   object: any

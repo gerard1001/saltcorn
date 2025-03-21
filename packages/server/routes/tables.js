@@ -1391,6 +1391,7 @@ router.post(
       res.redirect(`/table`);
       return;
     }
+
     const views = await View.find(
       t.id ? { table_id: t.id } : { exttable_name: t.name }
     );
@@ -1417,18 +1418,22 @@ router.post(
         return;
       }
     }
-    try {
-      await t.delete();
-      req.flash("success", req.__(`Table %s deleted`, t.name));
-      Trigger.emitEvent("AppChange", `Table ${t.name} deleted`, req.user, {
-        entity_type: "Table",
-        entity_name: t.name,
-      });
-      res.redirect(`/table`);
-    } catch (err) {
-      req.flash("error", err.message);
-      res.redirect(`/table`);
-    }
+    await db.withTransaction(async (client) => {
+      t.client = client;
+      try {
+        await t.delete();
+        req.flash("success", req.__(`Table %s deleted`, t.name));
+        Trigger.emitEvent("AppChange", `Table ${t.name} deleted`, req.user, {
+          entity_type: "Table",
+          entity_name: t.name,
+        });
+        res.redirect(`/table`);
+      } catch (err) {
+        req.flash("error", err.message);
+        res.redirect(`/table`);
+      }
+      await getState().refresh_tables();
+    });
   })
 );
 router.post(
