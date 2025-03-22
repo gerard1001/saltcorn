@@ -1859,21 +1859,29 @@ router.post(
           .filter((f) => form.values[f]);
         configuration.errormsg = form.values.errormsg;
       } else configuration = form.values;
-      await TableConstraint.create({
-        table_id: table.id,
-        type,
-        configuration,
+      await db.withTransaction(async (client) => {
+        await TableConstraint.create(
+          {
+            table_id: table.id,
+            type,
+            configuration,
+          },
+          client
+        );
+        Trigger.emitEvent(
+          "AppChange",
+          `Constraint ${type} on table ${table?.name}`,
+          req.user,
+          {
+            entity_type: "TableConstraint",
+            entity_name: table.name,
+          }
+        );
       });
-      Trigger.emitEvent(
-        "AppChange",
-        `Constraint ${type} on table ${table?.name}`,
-        req.user,
-        {
-          entity_type: "TableConstraint",
-          entity_name: table.name,
-        }
-      );
     }
+
+    await getState().refresh_tables();
+
     res.redirect(`/table/constraints/${table.id}`);
   })
 );

@@ -8,6 +8,7 @@ import {
   type Where,
   type SelectOptions,
   ftsFieldsSqlExpr,
+  type DatabaseClient,
 } from "@saltcorn/db-common/internal";
 import db from "../db";
 import type Field from "./field";
@@ -77,13 +78,20 @@ class TableConstraint {
    * @param {*} f
    * @returns {Promise<TableConstraint>}
    */
-  static async create(f: TableConstraintCfg): Promise<TableConstraint> {
+  static async create(
+    f: TableConstraintCfg,
+    client?: DatabaseClient
+  ): Promise<TableConstraint> {
     const con = new TableConstraint(f);
 
     const Table = require("./table");
     const table = Table.findOne({ id: con.table_id });
     if (con.type === "Unique" && con.configuration.fields) {
-      await db.add_unique_constraint(table.name, con.configuration.fields);
+      await db.add_unique_constraint(
+        table.name,
+        con.configuration.fields,
+        client
+      );
     } else if (con.type === "Index" && con.configuration.field === "_fts") {
       const hasIncludeFts = table.fields.filter(
         (f: FieldLike) => f.attributes?.include_fts
@@ -95,13 +103,18 @@ class TableConstraint {
         db.getTenantSchema()
       );
       const language = require("../db/state").getState().pg_ts_config;
-      await db.add_fts_index(table.name, text_fields, language);
+      await db.add_fts_index(
+        table.name,
+        text_fields,
+        language,
+        client
+      );
     } else if (con.type === "Index") {
-      await db.add_index(table.name, con.configuration.field);
+      await db.add_index(table.name, con.configuration.field, client);
     }
 
     const { id, ...rest } = con;
-    const fid = await db.insert("_sc_table_constraints", rest);
+    const fid = await db.insert("_sc_table_constraints", rest, { client });
     con.id = fid;
 
     if (con.type === "Formula" && !db.isSQLite) {
@@ -121,7 +134,9 @@ class TableConstraint {
               table.name
             )}" add constraint "${db.sqlsanitize(
               table.name
-            )}_fml_${fid}" CHECK (${sql});`
+            )}_fml_${fid}" CHECK (${sql});`,
+            [],
+            client
           );
         } catch (e) {
           //cannot implement as SQL
@@ -129,8 +144,6 @@ class TableConstraint {
           //ignore
         }
     }
-
-    await require("../db/state").getState().refresh_tables();
 
     return con;
   }
