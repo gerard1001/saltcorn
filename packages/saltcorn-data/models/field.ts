@@ -789,8 +789,7 @@ class Field implements AbstractField {
       } not null;`,
       [],
       this.table?.client
-    );
-    await require("../db/state").getState().refresh_tables();
+    );    
   }
 
   /**
