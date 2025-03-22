@@ -1978,9 +1978,12 @@ router.post(
   isAdminOrHasConfigMinRole("min_role_edit_tables"),
   error_catcher(async (req, res) => {
     const { id } = req.params;
-    const cons = await TableConstraint.findOne({ id });
-    await cons.delete();
-    res.redirect(`/table/constraints/${cons.table_id}`);
+    await db.withTransaction(async (client) => {
+      const cons = await TableConstraint.findOne({ id }, { client });
+      await cons.delete(client);
+      res.redirect(`/table/constraints/${cons.table_id}`);
+    });
+    await getState().refresh_tables();
   })
 );
 

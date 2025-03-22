@@ -69,8 +69,15 @@ class TableConstraint {
    * @param {*} where
    * @returns {Promise<TableConstraint>}
    */
-  static async findOne(where: Where): Promise<TableConstraint | null> {
-    const p = await db.selectMaybeOne("_sc_table_constraints", where);
+  static async findOne(
+    where: Where,
+    selectopts?: SelectOptions
+  ): Promise<TableConstraint | null> {
+    const p = await db.selectMaybeOne(
+      "_sc_table_constraints",
+      where,
+      selectopts
+    );
     return p ? new TableConstraint(p) : null;
   }
 
@@ -103,12 +110,7 @@ class TableConstraint {
         db.getTenantSchema()
       );
       const language = require("../db/state").getState().pg_ts_config;
-      await db.add_fts_index(
-        table.name,
-        text_fields,
-        language,
-        client
-      );
+      await db.add_fts_index(table.name, text_fields, language, client);
     } else if (con.type === "Index") {
       await db.add_index(table.name, con.configuration.field, client);
     }
@@ -151,16 +153,21 @@ class TableConstraint {
   /**
    * @returns {Promise<void>}
    */
-  async delete(): Promise<void> {
-    await db.deleteWhere("_sc_table_constraints", { id: this.id });
+  async delete(client?: DatabaseClient): Promise<void> {
+    await db.deleteWhere("_sc_table_constraints", { id: this.id }, { client });
     const Table = require("./table");
     const table = Table.findOne({ id: this.table_id });
+    table.client = client;
     if (this.type === "Unique" && this.configuration.fields) {
-      await db.drop_unique_constraint(table.name, this.configuration.fields);
+      await db.drop_unique_constraint(
+        table.name,
+        this.configuration.fields,
+        client
+      );
     } else if (this.type === "Index" && this.configuration?.field === "_fts") {
-      await db.drop_fts_index(table.name);
+      await db.drop_fts_index(table.name, client);
     } else if (this.type === "Index") {
-      await db.drop_index(table.name, this.configuration.field);
+      await db.drop_index(table.name, this.configuration.field, client);
     } else if (this.type === "Formula" && !db.isSQLite) {
       const schema = db.getTenantSchemaPrefix();
       await db.query(
@@ -168,10 +175,11 @@ class TableConstraint {
           table.name
         )}" drop constraint IF EXISTS "${db.sqlsanitize(table.name)}_fml_${
           this.id
-        }";`
+        }";`,
+        [],
+        client
       );
     }
-    await require("../db/state").getState().refresh_tables();
   }
 
   /**
