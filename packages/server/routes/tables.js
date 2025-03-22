@@ -2236,8 +2236,11 @@ router.post(
     const table = Table.findOne({ name });
 
     try {
-      await table.deleteRows({}, req.user, true);
-      req.flash("success", req.__("Deleted all rows"));
+      await db.withTransaction(async (client) => {
+        table.client = client;
+        await table.deleteRows({}, req.user, true);
+        req.flash("success", req.__("Deleted all rows"));
+      });
     } catch (e) {
       console.error(e);
       req.flash("error", e.message);
