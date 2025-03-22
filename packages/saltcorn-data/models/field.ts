@@ -1073,7 +1073,6 @@ class Field implements AbstractField {
       }
     }
     await this.set_calc_joinfields();
-    await state.refresh_tables();
   }
 
   /**
@@ -1200,7 +1199,7 @@ class Field implements AbstractField {
     }
 
     const sql_type = bare ? f.sql_bare_type : f.sql_type;
-    const table = Table.findOne({ id: f.table_id });
+    const table = fld.table || Table.findOne({ id: f.table_id });
     table.client = client;
     if (!f.calculated || f.stored) {
       if (typeof f.attributes.default === "undefined") {
@@ -1277,20 +1276,16 @@ class Field implements AbstractField {
 
     if (f.is_unique && !f.calculated) await f.add_unique_constraint();
     await f.set_calc_joinfields();
-    await require("../db/state").getState().refresh_tables();
-
+    //await require("../db/state").getState().refresh_tables();
+    table.fields.push(f);
     if (f.calculated && f.stored) {
       const nrows = await table.countRows({});
       if (nrows > 0) {
-        const table1 = Table.findOne({ id: f.table_id });
-        table1.client = client;
         //intentionally omit await
-        recalculate_for_stored(table1); //not waiting as there could be a lot of data
+        recalculate_for_stored(table); //not waiting as there could be a lot of data
       }
     }
-    if (fld.table && fld.table.fields) {
-      fld.table.fields.push(f);
-    }
+
     return f;
   }
 
