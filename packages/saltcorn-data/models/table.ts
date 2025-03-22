@@ -2628,42 +2628,31 @@ class Table implements AbstractTable {
       throw new InvalidAdminAction("Cannot rename table on SQLite");
     const schemaPrefix = db.getTenantSchemaPrefix();
 
-    const client = await db.getClient();
-    await client.query(`BEGIN`);
-    try {
-      //rename table
+    //rename table
+    await db.query(
+      `alter table ${schemaPrefix}"${sqlsanitize(
+        this.name
+      )}" rename to "${sqlsanitize(new_name)}";`,
+      [],
+      this.client
+    );
+    //change refs
+    await db.query(
+      `update ${schemaPrefix}_sc_fields set reftable_name=$1 where reftable_name=$2`,
+      [new_name, this.name],
+      this.client
+    );
+    //rename history
+    if (this.versioned)
       await db.query(
         `alter table ${schemaPrefix}"${sqlsanitize(
           this.name
-        )}" rename to "${sqlsanitize(new_name)}";`,
+        )}__history" rename to "${sqlsanitize(new_name)}__history";`,
         [],
-        client
+        this.client
       );
-      //change refs
-      await db.query(
-        `update ${schemaPrefix}_sc_fields set reftable_name=$1 where reftable_name=$2`,
-        [new_name, this.name],
-        client
-      );
-      //rename history
-      if (this.versioned)
-        await db.query(
-          `alter table ${schemaPrefix}"${sqlsanitize(
-            this.name
-          )}__history" rename to "${sqlsanitize(new_name)}__history";`,
-          [],
-          client
-        );
-      //1. change record
-      await this.update({ name: new_name });
-      await client.query(`COMMIT`);
-    } catch (e) {
-      await client.query(`ROLLBACK`);
-      client.release(true);
-      throw e;
-    }
-    client.release(true);
-    await require("../db/state").getState().refresh_tables();
+    //1. change record
+    await this.update({ name: new_name });
   }
 
   /**

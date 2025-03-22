@@ -1453,12 +1453,15 @@ router.post(
       return;
     }
     try {
-      await t.delete(true);
-      req.flash(
-        "success",
-        req.__(`Table %s forgotten. You can now discover it.`, t.name)
-      );
-      res.redirect(`/table`);
+      await db.withTransaction(async (client) => {
+        t.client = client;
+        await t.delete(true);
+        req.flash(
+          "success",
+          req.__(`Table %s forgotten. You can now discover it.`, t.name)
+        );
+        res.redirect(`/table`);
+      });
     } catch (err) {
       req.flash("error", err.message);
       res.redirect(`/table`);
@@ -1960,8 +1963,13 @@ router.post(
     form.validate(req.body || {});
     if (form.hasErrors) req.flash("error", req.__("An error occurred"));
     else {
-      await table.rename(form.values.name);
+      await db.withTransaction(async (client) => {
+        table.client = client;
+        await table.rename(form.values.name);
+      });
+      await getState().refresh_tables();
     }
+
     res.redirect(`/table/${table.id}`);
   })
 );
@@ -2420,7 +2428,10 @@ router.post(
       res.redirect(`/table`);
       return;
     }
-    await table.repairCompositePrimary();
+    await db.withTransaction(async (client) => {
+      table.client = client;
+      await table.repairCompositePrimary();
+    });
     res.redirect(`/table/${table.id}`);
   })
 );
