@@ -1432,8 +1432,8 @@ router.post(
         req.flash("error", err.message);
         res.redirect(`/table`);
       }
-      await getState().refresh_tables();
     });
+    await getState().refresh_tables();
   })
 );
 router.post(
