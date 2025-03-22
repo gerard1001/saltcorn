@@ -307,7 +307,7 @@ const fieldFlow = (req) =>
         const table = Table.findOne({ id: table_id });
         table.client = client;
         if (context.id) {
-          const field = await Field.findOne({ id: context.id });
+          const field = await Field.findOne({ id: context.id }, { client });
           field.table = table;
           try {
             if (fldRow.label && field.label != fldRow.label) {

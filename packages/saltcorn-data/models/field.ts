@@ -733,8 +733,11 @@ class Field implements AbstractField {
    * @param {object} where
    * @returns {Promise<Field>}
    */
-  static async findOne(where: Where): Promise<Field> {
-    const db_fld = await db.selectOne("_sc_fields", where);
+  static async findOne(
+    where: Where,
+    selectopts?: SelectOptions
+  ): Promise<Field> {
+    const db_fld = await db.selectOne("_sc_fields", where, selectopts);
     return new Field(db_fld);
   }
 
