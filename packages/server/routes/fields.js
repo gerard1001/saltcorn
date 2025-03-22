@@ -894,17 +894,23 @@ router.post(
   isAdminOrHasConfigMinRole("min_role_edit_tables"),
   error_catcher(async (req, res) => {
     const { id } = req.params;
-    const f = await Field.findOne({ id });
-    if (!f) {
-      req.flash("danger", req.__(`Field not found`));
-      res.redirect(`/table`);
-      return;
-    }
-    const table_id = f.table_id;
+    await db.withTransaction(async (client) => {
+      const f = await Field.findOne({ id }, { client });
+      if (!f) {
+        req.flash("danger", req.__(`Field not found`));
+        res.redirect(`/table`);
+        return;
+      }
+      const table_id = f.table_id;
+      const table = Table.findOne(table_id);
+      table.client = client;
+      f.table = table;
+      await f.delete();
 
-    await f.delete();
-    req.flash("success", req.__(`Field %s deleted`, f.label));
-    res.redirect(`/table/${table_id}`);
+      req.flash("success", req.__(`Field %s deleted`, f.label));
+      res.redirect(`/table/${table_id}`);
+    });
+    await getState().refresh_tables();
   })
 );
 

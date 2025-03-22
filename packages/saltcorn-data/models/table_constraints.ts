@@ -191,12 +191,14 @@ class TableConstraint {
     table: Table,
     field: Field
   ): Promise<void> {
-    const tblcs = await TableConstraint.find({ table_id: table.id });
+    const tblcs = await TableConstraint.find(
+      { table_id: table.id },
+      { client: table.client }
+    );
     for (const c of tblcs) {
       if (c.configuration.fields && c.configuration.fields.includes(field.name))
-        await c.delete();
+        await c.delete(table.client);
     }
-    await require("../db/state").getState().refresh_tables();
   }
 
   /**

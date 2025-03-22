@@ -789,7 +789,7 @@ class Field implements AbstractField {
       } not null;`,
       [],
       this.table?.client
-    );    
+    );
   }
 
   /**
@@ -1108,7 +1108,7 @@ class Field implements AbstractField {
    */
   async delete(): Promise<void> {
     const Table = require("./table");
-    const table = Table.findOne({ id: this.table_id });
+    const table = this.table || Table.findOne({ id: this.table_id });
     const TableConstraint = require("./table_constraints");
     await TableConstraint.delete_field_constraints(table, this);
     if (table.ownership_field_id === this.id) {
@@ -1118,30 +1118,32 @@ class Field implements AbstractField {
     }
 
     const schema = db.getTenantSchemaPrefix();
-    const client = db.isSQLite ? db : await db.getClient();
-    await client.query("BEGIN");
 
-    await db.deleteWhere("_sc_fields", { id: this.id }, { client });
+    await db.deleteWhere(
+      "_sc_fields",
+      { id: this.id },
+      { client: this.table?.client }
+    );
 
     if (!this.calculated || this.stored) {
       if (db.isSQLite && this.is_unique) await this.remove_unique_constraint();
-      await client.query(
+      await db.query(
         `alter table ${schema}"${sqlsanitize(
           table.name
-        )}" drop column "${sqlsanitize(this.name)}"`
+        )}" drop column "${sqlsanitize(this.name)}"`,
+        [],
+        this.table?.client
       );
       if (table.versioned) {
-        await client.query(
+        await db.query(
           `alter table ${schema}"${sqlsanitize(
             table.name
-          )}__history" drop column "${sqlsanitize(this.name)}"`
+          )}__history" drop column "${sqlsanitize(this.name)}"`,
+          [],
+          this.table?.client
         );
       }
     }
-    await client.query("COMMIT");
-
-    if (!db.isSQLite) await client.release(true);
-    await require("../db/state").getState().refresh_tables();
   }
 
   /**
