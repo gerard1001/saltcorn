@@ -658,6 +658,10 @@ const getOperatorOrder = (
   return ppOp(operator);
 };
 
+export type DatabaseClient = {
+  query: (sql: String, parameters?: any[]) => Promise<{ rows: Row[] }>;
+};
+
 export type SelectOptions = {
   orderBy?:
     | { distance: CoordOpts }
@@ -680,7 +684,7 @@ export type SelectOptions = {
   has_sync_info?: boolean;
   description?: string;
   recursive?: boolean; // for File.find()
-  client?: any;
+  client?: DatabaseClient;
 };
 export const orderByIsObject = (
   object: any

@@ -1,6 +1,7 @@
 import type { AbstractField, FieldCfg } from "./abstract_field";
 import type { TriggerCfg } from "./abstract_trigger";
 import type { AbstractTag } from "./abstract_tag";
+import type { DatabaseClient } from "@saltcorn/db-common/internal";
 
 export interface AbstractTable {
   name: string;
@@ -10,7 +11,7 @@ export interface AbstractTable {
   fields: AbstractField[];
   getTags(): Promise<Array<AbstractTag>>;
   getForeignTables(): Promise<Array<AbstractTable>>;
-  client?: any
+  client?: DatabaseClient;
 }
 
 /**
@@ -32,7 +33,7 @@ export type TableCfg = {
   constraints?: any[];
   provider_name?: string;
   provider_cfg?: any;
-  client?: any;
+  client?: DatabaseClient;
 };
 
 export type TablePack = {

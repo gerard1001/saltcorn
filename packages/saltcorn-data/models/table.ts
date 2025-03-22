@@ -17,6 +17,7 @@ import type {
   SelectOptions,
   Row,
   PrimaryKeyValue,
+  DatabaseClient,
   JoinFields,
   JoinOptions,
   AggregationOptions,
@@ -257,7 +258,7 @@ class Table implements AbstractTable {
   provider_cfg?: Row;
 
   /** Database Client, to maintain a transation */
-  client?: any;
+  client?: DatabaseClient;
   /**
    * Table constructor
    * @param {object} o
@@ -4055,7 +4056,7 @@ ${rejectDetails}`,
         }
       }
     }
-    return result;
+    return result; 
   }
 
   getFormulaExamples(typename: string) {

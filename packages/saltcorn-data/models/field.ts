@@ -21,7 +21,12 @@ const {
   structuredClone,
   validSqlId,
 } = require("../utils");
-import type { Where, SelectOptions, Row } from "@saltcorn/db-common/internal";
+import type {
+  Where,
+  SelectOptions,
+  Row,
+  DatabaseClient,
+} from "@saltcorn/db-common/internal";
 import type {
   ErrorMessage,
   GenObj,
@@ -1174,7 +1179,7 @@ class Field implements AbstractField {
     fld: Field | FieldCfg,
     bare: boolean = false,
     id?: string,
-    client?: any
+    client?: DatabaseClient
   ): Promise<Field> {
     const f = new Field(fld);
     const schema = db.getTenantSchemaPrefix();
