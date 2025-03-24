@@ -522,13 +522,13 @@ router.post(
           entity_type: "Page",
           entity_name: pageRow.name,
         });
-
         if (!html_file)
           res.redirect(
             addOnDoneRedirect(`/pageedit/edit/${pageRow.name}`, req)
           );
         else res.redirect(`/pageedit/`);
       }
+      await getState().refresh_pages();
     }
   })
 );
@@ -693,6 +693,7 @@ router.post(
       await Page.update(page.id, {
         layout: decodeURIComponent((req.body || {}).layout),
       });
+      await getState().refresh_pages();
       Trigger.emitEvent("AppChange", `Page ${page.name}`, req.user, {
         entity_type: "Page",
         entity_name: page.name,
@@ -745,6 +746,7 @@ router.post(
 
     if (id && (req.body || {}).layout) {
       await Page.update(+id, { layout: (req.body || {}).layout });
+      await getState().refresh_pages();
       const page = await Page.findOne({ id });
       Trigger.emitEvent("AppChange", `Page ${page.name}`, req.user, {
         entity_type: "Page",
@@ -769,15 +771,18 @@ router.post(
   "/delete/:id",
   isAdminOrHasConfigMinRole("min_role_edit_pages"),
   error_catcher(async (req, res) => {
-    const { id } = req.params;
-    const page = await Page.findOne({ id });
-    Trigger.emitEvent("AppChange", `Page ${page.name}`, req.user, {
-      entity_type: "Page",
-      entity_name: page.name,
+    await db.withTransaction(async (client) => {
+      const { id } = req.params;
+      const page = await Page.findOne({ id });
+      Trigger.emitEvent("AppChange", `Page ${page.name}`, req.user, {
+        entity_type: "Page",
+        entity_name: page.name,
+      });
+      await page.delete(client);
+      req.flash("success", req.__(`Page deleted`));
+      res.redirect(`/pageedit`);
     });
-    await page.delete();
-    req.flash("success", req.__(`Page deleted`));
-    res.redirect(`/pageedit`);
+    await getState().refresh_pages();
   })
 );
 
@@ -852,6 +857,7 @@ router.post(
     const { id } = req.params;
     const page = await Page.findOne({ id });
     const newpage = await page.clone();
+    await getState().refresh_pages();
     Trigger.emitEvent("AppChange", `Page ${newpage.name}`, req.user, {
       entity_type: "Page",
       entity_name: newpage.name,
@@ -875,5 +881,6 @@ router.post(
   isAdminOrHasConfigMinRole("min_role_edit_pages"),
   error_catcher(async (req, res) => {
     await setRole(req, res, Page);
+    await getState().refresh_pages();
   })
 );

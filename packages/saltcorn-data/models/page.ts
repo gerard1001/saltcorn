@@ -19,7 +19,12 @@ import type {
   ConnectedObjects,
 } from "@saltcorn/types/base_types";
 import { instanceOWithHtmlFile } from "@saltcorn/types/base_types";
-import { Row, SelectOptions, Where } from "@saltcorn/db-common/internal";
+import {
+  DatabaseClient,
+  Row,
+  SelectOptions,
+  Where,
+} from "@saltcorn/db-common/internal";
 import Role from "./role";
 import type {
   AbstractPage,
@@ -117,8 +122,8 @@ class Page implements AbstractPage {
       where.id
         ? (v: Page) => v.id === +where.id
         : where.name
-        ? (v: Page) => v.name === where.name
-        : satisfies(where)
+          ? (v: Page) => v.name === where.name
+          : satisfies(where)
     );
     return p
       ? new Page({
@@ -135,9 +140,12 @@ class Page implements AbstractPage {
    * @param row
    * @returns {Promise<void>}
    */
-  static async update(id: number, row: Row): Promise<void> {
-    await db.update("_sc_pages", row, id);
-    await require("../db/state").getState().refresh_pages();
+  static async update(
+    id: number,
+    row: Row,
+    client?: DatabaseClient
+  ): Promise<void> {
+    await db.update("_sc_pages", row, id, { client });
   }
   getStringsForI18n() {
     return getStringsForI18n(this.layout);
@@ -147,13 +155,14 @@ class Page implements AbstractPage {
    * @param f
    * @returns {Promise<Page>}
    */
-  static async create(f: PageCfg | PagePack): Promise<Page> {
+  static async create(
+    f: PageCfg | PagePack,
+    client?: DatabaseClient
+  ): Promise<Page> {
     const page = new Page(f);
     const { id, ...rest } = page;
-    const fid = await db.insert("_sc_pages", rest);
+    const fid = await db.insert("_sc_pages", rest, { client });
     page.id = fid;
-    await require("../db/state").getState().refresh_pages();
-
     return page;
   }
 
@@ -161,18 +170,21 @@ class Page implements AbstractPage {
    * Delete current page
    * @returns {Promise<void>}
    */
-  async delete(): Promise<void> {
+  async delete(client?: DatabaseClient): Promise<void> {
     // delete tag entries from _sc_tag_entries
-    await db.deleteWhere("_sc_page_group_members", { page_id: this.id });
-    await db.deleteWhere("_sc_tag_entries", { page_id: this.id });
-    await db.deleteWhere("_sc_pages", { id: this.id });
+    await db.deleteWhere(
+      "_sc_page_group_members",
+      { page_id: this.id },
+      { client }
+    );
+    await db.deleteWhere("_sc_tag_entries", { page_id: this.id }, { client });
+    await db.deleteWhere("_sc_pages", { id: this.id }, { client });
     const root_page_for_roles = await this.is_root_page_for_roles();
     for (const role of root_page_for_roles) {
       const { getState } = require("../db/state");
       await getState().setConfig(role + "_home", "");
     }
     await remove_from_menu({ name: this.name, type: "Page" });
-    await require("../db/state").getState().refresh_pages();
   }
 
   /**
@@ -206,8 +218,11 @@ class Page implements AbstractPage {
    * Clone page
    * @returns {Promise<Page>}
    */
-  async clone(): Promise<Page> {
-    const existingNames = await Page.find({ name: { ilike: this.name } });
+  async clone(client?: DatabaseClient): Promise<Page> {
+    const existingNames = await Page.find(
+      { name: { ilike: this.name } },
+      { client }
+    );
     const newname = cloneName(
       this.name,
       existingNames.map((v) => v.name)
@@ -218,7 +233,7 @@ class Page implements AbstractPage {
       name: newname,
     };
     delete createObj.id;
-    return await Page.create(createObj);
+    return await Page.create(createObj, client);
   }
 
   /**
