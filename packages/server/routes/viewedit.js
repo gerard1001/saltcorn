@@ -573,6 +573,7 @@ router.post(
           //console.log(v);
           await View.create(v);
         }
+        await getState().refresh_views();
         Trigger.emitEvent("AppChange", `View ${v.name}`, req.user, {
           entity_type: "View",
           entity_name: v.name,
@@ -759,6 +760,7 @@ router.post(
         };
       else newcfg = { ...view.configuration, ...context };
       await View.update({ configuration: newcfg }, view.id);
+      await getState().refresh_views();
       Trigger.emitEvent("AppChange", `View ${view.name}`, req.user, {
         entity_type: "View",
         entity_name: view.name,
@@ -848,15 +850,17 @@ router.post(
   "/delete/:id",
   isAdminOrHasConfigMinRole("min_role_edit_views"),
   error_catcher(async (req, res) => {
-    const { id } = req.params;
-    await View.delete({ id });
-    req.flash("success", req.__("View deleted"));
-    let redirectTarget =
-      req.query.on_done_redirect &&
-      is_relative_url("/" + req.query.on_done_redirect)
-        ? `/${req.query.on_done_redirect}`
-        : "/viewedit";
-    res.redirect(redirectTarget);
+    await db.withTransaction(async (client) => {
+      const { id } = req.params;
+      await View.delete({ id }, client);
+      req.flash("success", req.__("View deleted"));
+      let redirectTarget =
+        req.query.on_done_redirect &&
+        is_relative_url("/" + req.query.on_done_redirect)
+          ? `/${req.query.on_done_redirect}`
+          : "/viewedit";
+      res.redirect(redirectTarget);
+    });
   })
 );
 
@@ -876,6 +880,7 @@ router.post(
       const exview = await View.findOne({ id });
       let newcfg = { ...exview.configuration, ...(req.body || {}) };
       await View.update({ configuration: newcfg }, +id);
+      await getState().refresh_views();
       Trigger.emitEvent("AppChange", `View ${exview.name}`, req.user, {
         entity_type: "View",
         entity_name: exview.name,
@@ -918,6 +923,7 @@ router.post(
             };
           else newcfg = { ...view.configuration, ...step.renderForm.values };
           await View.update({ configuration: newcfg }, view.id);
+          await getState().refresh_views();
           Trigger.emitEvent("AppChange", `View ${view.name}`, req.user, {
             entity_type: "View",
             entity_name: view.name,
@@ -948,6 +954,7 @@ router.post(
     const { id } = req.params;
     const role = (req.body || {}).role;
     await View.update({ min_role: role }, +id);
+    await getState().refresh_views();
     const view = await View.findOne({ id });
     Trigger.emitEvent("AppChange", `View ${view.name}`, req.user, {
       entity_type: "View",

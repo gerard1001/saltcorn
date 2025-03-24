@@ -363,8 +363,6 @@ class View implements AbstractView {
     await db.deleteWhere("_sc_views", { id: this.id }, { client });
     // remove view from menu
     await remove_from_menu({ name: this.name, type: "View" });
-    // fresh view list cache
-    await require("../db/state").getState().refresh_views();
   }
 
   /**
@@ -372,9 +370,9 @@ class View implements AbstractView {
    * @param where - condition
    * @returns {Promise<void>}
    */
-  static async delete(where: Where): Promise<void> {
-    const vs = await View.find(where);
-    for (const v of vs) await v.delete();
+  static async delete(where: Where, client?: DatabaseClient): Promise<void> {
+    const vs = await View.find(where, {client});
+    for (const v of vs) await v.delete(client);
   }
 
   /**
@@ -390,8 +388,6 @@ class View implements AbstractView {
   ): Promise<void> {
     // update view description
     await db.update("_sc_views", v, id, { client });
-    // fresh view list cache
-    await require("../db/state").getState().refresh_views();
   }
 
   /**
