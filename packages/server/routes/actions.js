@@ -445,6 +445,7 @@ router.post(
         const tr = await Trigger.create(form.values);
         id = tr.id;
       }
+      await getState().refresh_triggers();
       Trigger.emitEvent("AppChange", `Trigger ${form.values.name}`, req.user, {
         entity_type: "Trigger",
         entity_name: form.values.name,
@@ -489,7 +490,8 @@ router.post(
           ...trigger.configuration,
           ...form.values.configuration,
         };
-      await Trigger.update(trigger.id, form.values); //{configuration: form.values});
+      await Trigger.update(trigger.id, form.values);
+      await getState().refresh_triggers();
       Trigger.emitEvent("AppChange", `Trigger ${trigger.name}`, req.user, {
         entity_type: "Trigger",
         entity_name: trigger.name,
@@ -1129,6 +1131,7 @@ router.post(
       await Trigger.update(trigger.id, {
         configuration: { ...trigger.configuration, ...form.values },
       });
+      await getState().refresh_triggers();
       Trigger.emitEvent("AppChange", `Trigger ${trigger.name}`, req.user, {
         entity_type: "Trigger",
         entity_name: trigger.name,
@@ -1159,11 +1162,14 @@ router.post(
   error_catcher(async (req, res) => {
     const { id } = req.params;
     const trigger = await Trigger.findOne({ id });
+    await db.withTransaction(async (client) => {
+      await trigger.delete(client);
+    });
     Trigger.emitEvent("AppChange", `Trigger ${trigger.name}`, req.user, {
       entity_type: "Trigger",
       entity_name: trigger.name,
     });
-    await trigger.delete();
+    await getState().refresh_triggers();
     req.flash("success", req.__(`Trigger %s deleted`, trigger.name));
     let redirectTarget =
       req.query.on_done_redirect &&
@@ -1481,6 +1487,7 @@ router.post(
     await WorkflowStep.deleteForTrigger(trigger.id);
     const description = (req.body || {}).description;
     await Trigger.update(trigger.id, { description });
+    await getState().refresh_triggers();
     const steps = await getState().functions.copilot_generate_workflow.run(
       description,
       trigger.id
@@ -1527,7 +1534,10 @@ router.get(
     const wfTable = mkTable(
       [
         { label: req.__("Trigger"), key: (run) => trNames[run.trigger_id] },
-        { label: req.__("Started"), key: (run) => localeDateTime(run.started_at) },
+        {
+          label: req.__("Started"),
+          key: (run) => localeDateTime(run.started_at),
+        },
         {
           label: req.__("Updated"),
           key: (run) => localeDateTime(run.status_updated_at),

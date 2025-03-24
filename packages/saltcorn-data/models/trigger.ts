@@ -7,7 +7,12 @@
 
 import db = require("../db");
 import EventLog from "./eventlog";
-import type { Where, SelectOptions, Row } from "@saltcorn/db-common/internal";
+import type {
+  Where,
+  SelectOptions,
+  Row,
+  DatabaseClient,
+} from "@saltcorn/db-common/internal";
 import type {
   TriggerCfg,
   AbstractTrigger,
@@ -149,7 +154,6 @@ class Trigger implements AbstractTrigger {
     getState().log(6, `Update trigger ID=${id} Row=${JSON.stringify(row)}`);
     if (row.table_id === "") row.table_id = null;
     await db.update("_sc_triggers", row, id);
-    await require("../db/state").getState().refresh_triggers();
   }
 
   /**
@@ -166,7 +170,6 @@ class Trigger implements AbstractTrigger {
       rest.table_id = table.id;
     }
     trigger.id = await db.insert("_sc_triggers", rest);
-    await require("../db/state").getState().refresh_triggers();
     return trigger;
   }
 
@@ -174,13 +177,24 @@ class Trigger implements AbstractTrigger {
    * Delete current trigger
    * @returns {Promise<void>}
    */
-  async delete(): Promise<void> {
+  async delete(client?: DatabaseClient): Promise<void> {
     // delete tag entries from _sc_tag_entries
-    await db.deleteWhere("_sc_workflow_runs", { trigger_id: this.id });
-    await db.deleteWhere("_sc_workflow_steps", { trigger_id: this.id });
-    await db.deleteWhere("_sc_tag_entries", { trigger_id: this.id });
-    await db.deleteWhere("_sc_triggers", { id: this.id });
-    await require("../db/state").getState().refresh_triggers();
+    await db.deleteWhere(
+      "_sc_workflow_runs",
+      { trigger_id: this.id },
+      { client }
+    );
+    await db.deleteWhere(
+      "_sc_workflow_steps",
+      { trigger_id: this.id },
+      { client }
+    );
+    await db.deleteWhere(
+      "_sc_tag_entries",
+      { trigger_id: this.id },
+      { client }
+    );
+    await db.deleteWhere("_sc_triggers", { id: this.id }, { client });
   }
 
   /**
