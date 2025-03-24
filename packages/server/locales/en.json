@@ -1586,5 +1586,8 @@
 	"What happens when a row is clicked": "What happens when a row is clicked",
 	"Row click action": "Row click action",
 	"Run this action when row is clicked": "Run this action when row is clicked",
-	"Only day": "Only day"
+	"Only day": "Only day",
+	"Reset password view": "Reset password view",
+	"A view that will be emailed to users when they have forgotten their password": "A view that will be emailed to users when they have forgotten their password",
+	"Allow login methods": "Allow login methods"
 }

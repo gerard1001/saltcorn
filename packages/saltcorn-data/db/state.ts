@@ -28,6 +28,7 @@ import {
   Action,
   AuthenticationMethod,
   CopilotSkill,
+  CapacitorPlugin,
 } from "@saltcorn/types/base_types";
 import { Type } from "@saltcorn/types/common_types";
 import type { ConfigTypes, SingleConfig } from "../models/config";
@@ -59,6 +60,7 @@ import { writeFile, mkdir } from "fs/promises";
 import { runInContext, createContext } from "vm";
 import faIcons from "./fa5-icons";
 import { AbstractTable } from "@saltcorn/types/model-abstracts/abstract_table";
+import { AbstractRole } from "@saltcorn/types/model-abstracts/abstract_role";
 
 /**
  * @param v
@@ -182,6 +184,7 @@ class State {
   waitingWorkflows?: boolean;
   keyframes: Array<string>;
   copilot_skills: Record<string, CopilotSkill>;
+  capacitorPlugins: Array<CapacitorPlugin>;
 
   private oldCodePages: Record<string, string> | undefined;
 
@@ -254,6 +257,7 @@ class State {
       "bounce",
       "tada",
     ];
+    this.capacitorPlugins = [];
   }
 
   processSend(v: any) {
@@ -838,6 +842,13 @@ class State {
     const routes = withCfg("routes", []);
     this.plugin_routes[name] = routes;
     if (routes.length > 0 && this.routesChangedCb) this.routesChangedCb();
+
+    withCfg("capacitor_plugins", []).forEach((capPlugin: CapacitorPlugin) => {
+      if (this.capacitorPlugins.find((cp) => cp.name === capPlugin.name))
+        this.log(5, `Capacitor plugin ${capPlugin.name} already registered`);
+      else this.capacitorPlugins.push(capPlugin);
+    });
+
     if (hasFunctions)
       this.refresh_codepages(true).catch((e) => console.error(e));
   }
@@ -1004,6 +1015,24 @@ class State {
 
   emitLog(ten: string, min_level: number, msg: string) {
     globalLogEmitter(ten, min_level, msg);
+  }
+
+  // default auth methods to enabled
+  get_auth_enabled_by_role(role_id: number): Record<string, boolean> {
+    const auth_method_by_role = this.getConfig("auth_method_by_role", {});
+    const auth_methods = Object.keys(this.auth_methods);
+    auth_methods.unshift("Password");
+
+    const enabled: Record<string, boolean> = {};
+    if (!auth_method_by_role[role_id]) {
+      for (const auth_method of auth_methods) enabled[auth_method] = true;
+    } else {
+      for (const auth_method of auth_methods) {
+        const setVal = auth_method_by_role[role_id][auth_method];
+        enabled[auth_method] = typeof setVal === "undefined" ? true : setVal;
+      }
+    }
+    return enabled;
   }
 
   get pg_ts_config(): string {

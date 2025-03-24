@@ -127,6 +127,11 @@ const configTypes: ConfigTypes = {
     label: "2FA policy by role",
     default: {},
   },
+  auth_method_by_role: {
+    type: "hidden",
+    label: "Authentication method by role",
+    default: {},
+  },
   allow_signup: {
     type: "Bool",
     label: "Allow signups",
@@ -179,6 +184,13 @@ const configTypes: ConfigTypes = {
     type: "View users",
     label: "Login view",
     blurb: "A view with the login form",
+    default: "",
+  },
+  reset_password_email_view: {
+    type: "View users",
+    label: "Reset password view",
+    blurb:
+      "A view that will be emailed to users when they have forgotten their password",
     default: "",
   },
   signup_form: {

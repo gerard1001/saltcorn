@@ -2,6 +2,18 @@
 
 ## 1.1.3 - In beta
 
+* A POST route for the reload management api (`/scapi/reload`) which takes as body JSON
+  a newly created tenant with `saltcorn create-tenant` CLI (`new_tenant` JSON key) or an
+  existing tenant (`tenant` JSON key) to reload.
+
+* User authentication methods (password, external identity providers) can 
+  now be disabled by role
+
+* Customize reset password email, under Login and Signup settings
+
+* Snapshot and restore code pages; show code page compilation error; expand code 
+  editor height to fill screeen.
+
 * Toast action can now set the title
 
 * List view: Row click can now open in a new tab, in a popup, or can run an action.
@@ -21,6 +33,7 @@
 * Fix serving JSDoc (Table, File, User links in run_js_code)
 * Destination redirect on login now works on custom login forms and with external identity providers
 * insert_any_row now works from pages
+* Fix various capacitor build errors.
 
 ## 1.1.2 - Released 4 March 2025
 
