@@ -36,7 +36,11 @@ import type {
   Res,
 } from "@saltcorn/types/base_types";
 import type Table from "./table";
-import type { Where, SelectOptions } from "@saltcorn/db-common/internal";
+import type {
+  Where,
+  SelectOptions,
+  DatabaseClient,
+} from "@saltcorn/db-common/internal";
 import type Workflow from "./workflow";
 import { GenObj } from "@saltcorn/types/common_types";
 import type {
@@ -301,7 +305,7 @@ class View implements AbstractView {
    * @returns {Promise<View>}
    */
   // todo there hard code about roles and flag is_public
-  static async create(v: ViewCfg): Promise<View> {
+  static async create(v: ViewCfg, client?: DatabaseClient): Promise<View> {
     // is_public flag processing
     if (!v.min_role && typeof v.is_public !== "undefined") {
       v.min_role = v.is_public ? 100 : 80;
@@ -309,9 +313,8 @@ class View implements AbstractView {
     }
     const { table, ...row } = v;
     // insert view definition into _sc_views
-    const id = await db.insert("_sc_views", row);
+    const id = await db.insert("_sc_views", row, { client });
     // refresh views list cache
-    await require("../db/state").getState().refresh_views();
     return new View({ id, ...v });
   }
 
@@ -342,7 +345,7 @@ class View implements AbstractView {
    * Delete current view from db
    * @returns {Promise<void>}
    */
-  async delete(): Promise<void> {
+  async delete(client?: DatabaseClient): Promise<void> {
     if (
       this.viewtemplateObj &&
       this.viewtemplateObj.on_delete &&
@@ -355,9 +358,9 @@ class View implements AbstractView {
         this.configuration
       );
     // delete tag entries from _sc_tag_entries
-    await db.deleteWhere("_sc_tag_entries", { view_id: this.id });
+    await db.deleteWhere("_sc_tag_entries", { view_id: this.id }, { client });
     // delete view from _sc_view
-    await db.deleteWhere("_sc_views", { id: this.id });
+    await db.deleteWhere("_sc_views", { id: this.id }, { client });
     // remove view from menu
     await remove_from_menu({ name: this.name, type: "View" });
     // fresh view list cache
@@ -380,9 +383,13 @@ class View implements AbstractView {
    * @param id - id
    * @returns {Promise<void>}
    */
-  static async update(v: any, id: number): Promise<void> {
+  static async update(
+    v: any,
+    id: number,
+    client?: DatabaseClient
+  ): Promise<void> {
     // update view description
-    await db.update("_sc_views", v, id);
+    await db.update("_sc_views", v, id, { client });
     // fresh view list cache
     await require("../db/state").getState().refresh_views();
   }
