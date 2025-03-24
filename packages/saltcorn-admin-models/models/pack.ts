@@ -795,7 +795,6 @@ const install_pack = async (
       "function_code_pages_tags",
       function_code_pages_tags
     );
-    await getState().refresh_codepages();
   }
 
   if (name) {
