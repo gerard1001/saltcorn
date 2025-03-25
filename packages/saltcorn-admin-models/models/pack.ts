@@ -633,9 +633,9 @@ const install_pack = async (
         id = newTrigger.id;
       }
       if (triggerSpec.action === "Workflow" && triggerSpec.steps) {
-        await WorkflowStep.deleteForTrigger(id);
+        await WorkflowStep.deleteForTrigger(id, client);
         for (const step of triggerSpec.steps) {
-          await WorkflowStep.create({ ...step, trigger_id: id });
+          await WorkflowStep.create({ ...step, trigger_id: id }, client);
         }
       }
     }
@@ -644,7 +644,7 @@ const install_pack = async (
       pageFullSpec.min_role = old_to_new_role(pageFullSpec.min_role);
       const { root_page_for_roles, menu_label, ...pageSpec } = pageFullSpec;
       const existing = Page.findOne({ name: pageSpec.name });
-      if (existing?.id) await Page.update(existing.id, pageSpec);
+      if (existing?.id) await Page.update(existing.id, pageSpec, client);
       else await Page.create(pageSpec as PagePack);
       for (const role of root_page_for_roles || []) {
         const current_root = getState().getConfigCopy(role + "_home", "");

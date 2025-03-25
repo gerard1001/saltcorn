@@ -5,7 +5,12 @@
  * @subcategory models
  */
 import db from "../db";
-import type { Where, SelectOptions, Row } from "@saltcorn/db-common/internal";
+import type {
+  Where,
+  SelectOptions,
+  Row,
+  DatabaseClient,
+} from "@saltcorn/db-common/internal";
 import type { WorkflowStepCfg } from "@saltcorn/types/model-abstracts/abstract_workflow_step";
 import User from "./user";
 import Trigger from "./trigger";
@@ -71,7 +76,10 @@ class WorkflowStep {
   /**
    * @param {object} lib_in
    */
-  static async create(step_in: WorkflowStepCfg): Promise<void> {
+  static async create(
+    step_in: WorkflowStepCfg,
+    client?: DatabaseClient
+  ): Promise<void> {
     const step = new WorkflowStep(step_in);
     if (step.initial_step) {
       await db.updateWhere(
@@ -79,10 +87,11 @@ class WorkflowStep {
         { initial_step: false },
         {
           trigger_id: step.trigger_id,
-        }
+        },
+        { client }
       );
     }
-    return await db.insert("_sc_workflow_steps", step.toJson);
+    return await db.insert("_sc_workflow_steps", step.toJson, { client });
   }
 
   /**
@@ -110,8 +119,11 @@ class WorkflowStep {
    * @param {*} where
    * @returns {WorkflowStep}
    */
-  static async findOne(where: Where): Promise<WorkflowStep> {
-    const u = await db.selectMaybeOne("_sc_workflow_steps", where);
+  static async findOne(
+    where: Where,
+    selectopts?: SelectOptions
+  ): Promise<WorkflowStep> {
+    const u = await db.selectMaybeOne("_sc_workflow_steps", where, selectopts);
     return u ? new WorkflowStep(u) : u;
   }
 
@@ -122,10 +134,16 @@ class WorkflowStep {
   /**
    * @returns {Promise<void>}
    */
-  async delete(connect_prev_next: boolean = false): Promise<void> {
+  async delete(
+    connect_prev_next: boolean = false,
+    client?: DatabaseClient
+  ): Promise<void> {
     const schema = db.getTenantSchemaPrefix();
     if (connect_prev_next) {
-      const allSteps = await WorkflowStep.find({ trigger_id: this.trigger_id });
+      const allSteps = await WorkflowStep.find(
+        { trigger_id: this.trigger_id },
+        { client }
+      );
       const allStepNames = new Set(allSteps.map((s) => s.name));
       const forStepInitialBodySteps = new Set(
         allSteps
@@ -140,7 +158,8 @@ class WorkflowStep {
       )
         await db.query(
           `update ${schema}_sc_workflow_steps SET initial_step = true WHERE trigger_id = $1 and name = $2`,
-          [this.trigger_id, this.next_step]
+          [this.trigger_id, this.next_step],
+          client
         );
       if (forStepInitialBodySteps.has(this.name)) {
         const forSteps = allSteps.filter(
@@ -149,40 +168,51 @@ class WorkflowStep {
             s.configuration.loop_body_initial_step == this.name
         );
         for (const forStep of forSteps) {
-          await forStep.update({
-            configuration: {
-              ...forStep.configuration,
-              loop_body_initial_step:
-                this.next_step && allStepNames.has(this.next_step)
-                  ? this.next_step
-                  : "",
+          await forStep.update(
+            {
+              configuration: {
+                ...forStep.configuration,
+                loop_body_initial_step:
+                  this.next_step && allStepNames.has(this.next_step)
+                    ? this.next_step
+                    : "",
+              },
             },
-          });
+            client
+          );
         }
       }
 
       if (this.next_step && allStepNames.has(this.next_step))
         await db.query(
           `update ${schema}_sc_workflow_steps SET next_step = $1 WHERE trigger_id = $2 and next_step = $3`,
-          [this.next_step, this.trigger_id, this.name]
+          [this.next_step, this.trigger_id, this.name],
+          client
         );
       else if (!this.next_step) {
         await db.query(
           `update ${schema}_sc_workflow_steps SET next_step = null WHERE trigger_id = $1 and next_step = $2`,
-          [this.trigger_id, this.name]
+          [this.trigger_id, this.name],
+          client
         );
       }
     }
-    await db.query(`delete FROM ${schema}_sc_workflow_steps WHERE id = $1`, [
-      this.id,
-    ]);
+    await db.query(
+      `delete FROM ${schema}_sc_workflow_steps WHERE id = $1`,
+      [this.id],
+      client
+    );
   }
 
-  static async deleteForTrigger(trigger_id: number): Promise<void> {
+  static async deleteForTrigger(
+    trigger_id: number,
+    client?: DatabaseClient
+  ): Promise<void> {
     const schema = db.getTenantSchemaPrefix();
     await db.query(
       `delete FROM ${schema}_sc_workflow_steps WHERE trigger_id = $1`,
-      [trigger_id]
+      [trigger_id],
+      client
     );
   }
 
@@ -190,7 +220,7 @@ class WorkflowStep {
    * @param {*} row
    * @returns {Promise<void>}
    */
-  async update(row: Row): Promise<void> {
+  async update(row: Row, client?: DatabaseClient): Promise<void> {
     if (row.initial_step) {
       await db.updateWhere(
         "_sc_workflow_steps",
@@ -198,10 +228,11 @@ class WorkflowStep {
         {
           trigger_id: this.trigger_id,
           not: { id: this.id },
-        }
+        },
+        { client }
       );
     }
-    await db.update("_sc_workflow_steps", row, this.id);
+    await db.update("_sc_workflow_steps", row, this.id, { client });
   }
 
   async run(context: any, user: User) {
@@ -325,7 +356,7 @@ class WorkflowStep {
     const linkLines = [];
     let step_ix = 0;
     const loopLinks = WorkflowStep.getDiagramLoopLinkBacks(steps);
-    
+
     for (const step of steps) {
       if (step.initial_step)
         linkLines.push(
