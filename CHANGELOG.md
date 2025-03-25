@@ -1,5 +1,11 @@
 # Notable changes
 
+## 1.1.4 - In beta
+
+* Transactional isolation:
+  Most administrative actions are now transactionally isolated
+
+
 ## 1.1.3 - Released 25 March 2025
 
 * A POST route for the reload management api (`/scapi/reload`) which takes as body JSON

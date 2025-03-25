@@ -47,10 +47,14 @@ const doMigrationStep = async (name, contents, client) => {
     await execMany(contents.sql_sqlite);
   }
   if (contents.js) {
-    await contents.js();
+    await contents.js(client);
   }
   // todo add columns with date & user when / who runs migration
-  await db.insert("_sc_migrations", { migration: name }, { noid: true });
+  await db.insert(
+    "_sc_migrations",
+    { migration: name },
+    { noid: true, client }
+  );
 };
 
 const getMigrationsInDB = async () => {
