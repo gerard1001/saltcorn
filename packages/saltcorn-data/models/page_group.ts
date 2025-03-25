@@ -4,7 +4,12 @@ import type {
   PageGroupCfg,
 } from "@saltcorn/types/model-abstracts/abstract_page_group";
 import Page from "./page";
-import { Row, SelectOptions, Where } from "@saltcorn/db-common/internal";
+import {
+  DatabaseClient,
+  Row,
+  SelectOptions,
+  Where,
+} from "@saltcorn/db-common/internal";
 import type {
   AbstractPageGroupMember,
   PageGroupMemberCfg,
@@ -88,39 +93,33 @@ class PageGroup implements AbstractPageGroup {
    * @param mode
    * @returns
    */
-  async moveMember(member: AbstractPageGroupMember, mode: "Up" | "Down") {
-    let transactionOpen = false;
-    try {
-      await db.begin();
-      transactionOpen = true;
-      const sorted = this.members.sort((a, b) => a.sequence - b.sequence);
-      const idx = sorted.findIndex((m) => m.id === member.id);
-      if (idx === -1) return;
-      if (mode === "Up" && idx > 0) {
-        const prev = sorted[idx - 1];
-        const tmp = prev.sequence;
-        await PageGroupMember.update(
-          prev.id!,
-          { sequence: member.sequence },
-          true
-        );
-        await PageGroupMember.update(member.id!, { sequence: tmp }, true);
-      }
-      if (mode === "Down" && idx < sorted.length - 1) {
-        const next = sorted[idx + 1];
-        const tmp = next.sequence;
-        await PageGroupMember.update(
-          next.id!,
-          { sequence: member.sequence },
-          true
-        );
-        await PageGroupMember.update(member.id!, { sequence: tmp }, true);
-      }
-      await db.commit();
-      await require("../db/state").getState().refresh_page_groups();
-    } catch (e) {
-      if (transactionOpen) await db.rollback();
-      throw e;
+  async moveMember(
+    member: AbstractPageGroupMember,
+    mode: "Up" | "Down",
+    client?: DatabaseClient
+  ) {
+    const sorted = this.members.sort((a, b) => a.sequence - b.sequence);
+    const idx = sorted.findIndex((m) => m.id === member.id);
+    if (idx === -1) return;
+    if (mode === "Up" && idx > 0) {
+      const prev = sorted[idx - 1];
+      const tmp = prev.sequence;
+      await PageGroupMember.update(
+        prev.id!,
+        { sequence: member.sequence },
+        client
+      );
+      await PageGroupMember.update(member.id!, { sequence: tmp }, client);
+    }
+    if (mode === "Down" && idx < sorted.length - 1) {
+      const next = sorted[idx + 1];
+      const tmp = next.sequence;
+      await PageGroupMember.update(
+        next.id!,
+        { sequence: member.sequence },
+        client
+      );
+      await PageGroupMember.update(member.id!, { sequence: tmp }, client);
     }
   }
 
@@ -189,8 +188,8 @@ class PageGroup implements AbstractPageGroup {
       where.id
         ? (t: PageGroup) => t.id === +where.id
         : where.name
-        ? (t: PageGroup) => t.name === where.name
-        : satisfies(where)
+          ? (t: PageGroup) => t.name === where.name
+          : satisfies(where)
     );
     return p ? new PageGroup({ ...p }) : p;
   }
@@ -203,37 +202,25 @@ class PageGroup implements AbstractPageGroup {
    */
   static async create(
     cfg: PageGroupCfg,
-    noTransaction?: boolean // or within transaction ?
+    client?: DatabaseClient
   ): Promise<PageGroup> {
     const pageGroup = new PageGroup(cfg);
     const membersToCopy = pageGroup.members;
     pageGroup.members = [];
     const { id, members, ...rest } = pageGroup;
-    let transactionOpen = false;
-    try {
-      if (!noTransaction) {
-        await db.begin();
-        transactionOpen = true;
-      }
-      const fid = await db.insert("_sc_page_groups", rest);
-      pageGroup.id = fid;
-      for (const member of membersToCopy) {
-        await pageGroup.addMember(
-          {
-            page_id: member.page_id,
-            eligible_formula: member.eligible_formula,
-            description: member.description,
-          },
-          true
-        );
-      }
-      if (transactionOpen) await db.commit();
-    } catch (e) {
-      if (transactionOpen) await db.rollback();
-      throw e;
+    const fid = await db.insert("_sc_page_groups", rest, { client });
+    pageGroup.id = fid;
+    for (const member of membersToCopy) {
+      await pageGroup.addMember(
+        {
+          page_id: member.page_id,
+          eligible_formula: member.eligible_formula,
+          description: member.description,
+        },
+        client
+      );
     }
-    if (!noTransaction)
-      await require("../db/state").getState().refresh_page_groups();
+
     return pageGroup;
   }
 
@@ -242,44 +229,52 @@ class PageGroup implements AbstractPageGroup {
    * @param id id of the group
    * @param row values to update
    */
-  static async update(id: number, row: Row): Promise<void> {
-    await db.update("_sc_page_groups", row, id);
-    await require("../db/state").getState().refresh_page_groups();
+  static async update(
+    id: number,
+    row: Row,
+    client?: DatabaseClient
+  ): Promise<void> {
+    await db.update("_sc_page_groups", row, id, { client });
   }
 
   /**
    * delete a group
    * @param where
    */
-  static async delete(where: Where | number): Promise<void> {
-    try {
-      await db.begin();
-      if (typeof where === "number") {
-        const id = where;
-        await db.deleteWhere("_sc_page_group_members", { page_group_id: id });
-        await db.deleteWhere("_sc_page_groups", { id });
-      } else {
-        const pageGroups = await PageGroup.find(where);
-        if (pageGroups.length > 0) {
-          const pageGroupIds = pageGroups.map((p) => p.id);
-          if (!db.isSQLite)
-            await db.deleteWhere("_sc_page_group_members", {
+  static async delete(
+    where: Where | number,
+    client?: DatabaseClient
+  ): Promise<void> {
+    if (typeof where === "number") {
+      const id = where;
+      await db.deleteWhere(
+        "_sc_page_group_members",
+        { page_group_id: id },
+        { client }
+      );
+      await db.deleteWhere("_sc_page_groups", { id }, { client });
+    } else {
+      const pageGroups = await PageGroup.find(where, { client });
+      if (pageGroups.length > 0) {
+        const pageGroupIds = pageGroups.map((p) => p.id);
+        if (!db.isSQLite)
+          await db.deleteWhere(
+            "_sc_page_group_members",
+            {
               page_group_id: { in: pageGroupIds },
-            });
-          else
-            db.query(
-              `DELETE FROM _sc_page_group_members WHERE page_group_id IN (${pageGroupIds.join(
-                ","
-              )})`
-            );
-          await db.deleteWhere("_sc_page_groups", where);
-        }
+            },
+            { client }
+          );
+        else
+          db.query(
+            `DELETE FROM _sc_page_group_members WHERE page_group_id IN (${pageGroupIds.join(
+              ","
+            )})`,
+            [],
+            client
+          );
+        await db.deleteWhere("_sc_page_groups", where, { client });
       }
-      await db.commit();
-      await require("../db/state").getState().refresh_page_groups();
-    } catch (e) {
-      await db.rollback();
-      throw e;
     }
   }
 
@@ -295,31 +290,21 @@ class PageGroup implements AbstractPageGroup {
    * duplicate this group with a new name
    * @returns the created group
    */
-  async clone(): Promise<PageGroup> {
-    let transactionOpen = false;
-    try {
-      await db.begin();
-      transactionOpen = true;
-      const basename = this.name + " copy";
-      let newname;
-      for (let i = 0; i < 100; i++) {
-        newname = i ? `${basename} (${i})` : basename;
-        const existing = PageGroup.findOne({ name: newname });
-        if (!existing) break;
-      }
-      const createObj = {
-        ...this,
-        name: newname,
-      };
-      delete createObj.id;
-      const newGroup = await PageGroup.create(createObj, true);
-      await db.commit();
-      await require("../db/state").getState().refresh_page_groups();
-      return newGroup;
-    } catch (e) {
-      if (transactionOpen) await db.rollback();
-      throw e;
+  async clone(client?: DatabaseClient): Promise<PageGroup> {
+    const basename = this.name + " copy";
+    let newname;
+    for (let i = 0; i < 100; i++) {
+      newname = i ? `${basename} (${i})` : basename;
+      const existing = PageGroup.findOne({ name: newname });
+      if (!existing) break;
     }
+    const createObj = {
+      ...this,
+      name: newname,
+    };
+    delete createObj.id;
+    const newGroup = await PageGroup.create(createObj, client);
+    return newGroup;
   }
 
   /**
@@ -328,7 +313,7 @@ class PageGroup implements AbstractPageGroup {
    */
   async addMember(
     cfg: PageGroupMemberCfg,
-    noRrefresh?: boolean
+    client?: DatabaseClient
   ): Promise<PageGroupMember> {
     const PageGroupMember = (await import("./page_group_member")).default;
     if (!this.id)
@@ -345,31 +330,31 @@ class PageGroup implements AbstractPageGroup {
         eligible_formula: cfg.eligible_formula,
         description: cfg.description,
       },
-      true
+      client
     );
     this.members.push(newMember);
-    if (!noRrefresh)
-      await require("../db/state").getState().refresh_page_groups();
     return new PageGroupMember(newMember);
   }
 
   /**
    * clear all members from this group
    */
-  async clearMembers(): Promise<void> {
-    await db.deleteWhere("_sc_page_group_members", { page_group_id: this.id });
+  async clearMembers(client?: DatabaseClient): Promise<void> {
+    await db.deleteWhere(
+      "_sc_page_group_members",
+      { page_group_id: this.id },
+      { client }
+    );
     this.members = [];
-    await require("../db/state").getState().refresh_page_groups();
   }
 
   /**
    * remove a member from this group
    * @param id id of the member
    */
-  async removeMember(id: number): Promise<void> {
+  async removeMember(id: number, client?: DatabaseClient): Promise<void> {
     const PageGroupMember = (await import("./page_group_member")).default;
-    await PageGroupMember.delete(id, true);
-    await require("../db/state").getState().refresh_page_groups();
+    await PageGroupMember.delete(id, client);
   }
 
   /**

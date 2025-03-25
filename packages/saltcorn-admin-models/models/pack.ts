@@ -666,8 +666,8 @@ const install_pack = async (
       const existing = PageGroup.findOne({ name: pageGroupSpec.name });
       if (existing?.id) {
         await existing.clearMembers(); // or merge ?
-        await PageGroup.update(existing.id, pageGroupNoMembers);
-      } else await PageGroup.create(pageGroupNoMembers);
+        await PageGroup.update(existing.id, pageGroupNoMembers, client);
+      } else await PageGroup.create(pageGroupNoMembers, client);
       const group = PageGroup.findOne({ name: pageGroupSpec.name });
       if (!group)
         throw new Error(`Unable to create page group '${pageGroupSpec.name}'`);
@@ -675,7 +675,10 @@ const install_pack = async (
         const { page_name, ...memberNoPageName } = member;
         const page = Page.findOne({ name: page_name });
         if (!page) throw new Error(`Unable to find page '${member.page_name}'`);
-        await group.addMember({ ...memberNoPageName, page_id: page.id! });
+        await group.addMember(
+          { ...memberNoPageName, page_id: page.id! },
+          client
+        );
       }
     }
 
