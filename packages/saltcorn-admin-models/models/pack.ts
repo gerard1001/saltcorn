@@ -41,6 +41,7 @@ import type { ModelPack } from "@saltcorn/types/model-abstracts/abstract_model";
 import type { ModelInstancePack } from "@saltcorn/types/model-abstracts/abstract_model_instance";
 import type { TagPack } from "@saltcorn/types/model-abstracts/abstract_tag";
 import { isEqual } from "lodash";
+import { DatabaseClient } from "@saltcorn/db-common/internal";
 
 const { isStale, getFetchProxyOptions } = require("@saltcorn/data/utils");
 
@@ -463,344 +464,360 @@ const install_pack = async (
       plugin.name = plugin.name.replace("@saltcorn/", "");
     const existingPlugins = await Plugin.find({});
     if (!existingPlugins.some((ep) => ep.name === plugin.name)) {
-      // local plugins can crah
+      // local plugins can crash
       try {
         const p = new Plugin(plugin);
         await loadAndSaveNewPlugin(p);
       } catch (e) {
         console.error("install pack plugin error:", e);
+        if (plugin.source !== "local") throw e;
       }
     }
   }
-  for (const role of pack.roles || []) {
-    role.id = old_to_new_role(role.id);
-    const existing = await Role.findOne({ id: role.id });
-    if (existing) await existing.update(role);
-    else await Role.create(role);
-  }
-  for (const lib of pack.library || []) {
-    const exisiting = await Library.findOne({ name: lib.name });
-    if (exisiting) await exisiting.update(lib);
-    else await Library.create(lib);
-  }
-  // create tables (users skipped because created by other ways)
-
-  // tables with a provider go last because they can depend on presence
-  // of other tables
-  const packTables = pack.tables.sort((left, right) =>
-    left.provider_name ? 1 : right.provider_name ? -1 : 0
-  );
-  for (const tableSpec of packTables) {
-    if (tableSpec.name !== "users") {
-      let tbl_pk;
-      const existing = Table.findOne({ name: tableSpec.name });
-      getState().log(
-        5,
-        `Restoring table pack name=${
-          tableSpec.name
-        } existing=${!!existing} tenant=${db.getTenantSchema()}`
-      );
-      if (existing) {
-        tbl_pk = await existing.getField(existing.pk_name);
-        const {
-          id,
-          ownership_field_id,
-          ownership_field_name,
-          triggers,
-          constraints,
-          fields,
-          client,
-          ...updrow
-        } = tableSpec;
-
-        await existing.update(updrow);
-      } else {
-        tableSpec.min_role_read = old_to_new_role(tableSpec.min_role_read);
-        tableSpec.min_role_write = old_to_new_role(tableSpec.min_role_write);
-        const table = await Table.create(tableSpec.name, tableSpec);
-        [tbl_pk] = table.getFields();
-      } //set pk
-      const pack_pk = tableSpec.fields.find((f) => f.primary_key);
-      if (pack_pk && tbl_pk) {
-        await tbl_pk.update(pack_pk);
-      }
+  await db.withTransaction(async (client: DatabaseClient) => {
+    for (const role of pack.roles || []) {
+      role.id = old_to_new_role(role.id);
+      const existing = await Role.findOne({ id: role.id }, { client });
+      if (existing) await existing.update(role, client);
+      else await Role.create(role, client);
     }
-  }
-  for (const tableSpec of pack.tables) {
-    const _table = Table.findOne({ name: tableSpec.name });
-    if (!_table) throw new Error(`Unable to find table '${tableSpec.name}'`);
+    for (const lib of pack.library || []) {
+      const exisiting = await Library.findOne({ name: lib.name }, { client });
+      if (exisiting) await exisiting.update(lib, client);
+      else await Library.create(lib, client);
+    }
+    // create tables (users skipped because created by other ways)
 
-    const exfields = _table.getFields();
-    if (!_table.provider_name)
-      for (const field of tableSpec.fields) {
-        const exfield = exfields.find((f) => f.name === field.name);
-        if (
-          !(
-            (_table.name === "users" &&
-              (field.name === "email" || field.name === "role_id")) ||
-            exfield
-          )
-        ) {
-          if (_table.name === "users" && field.required)
-            await Field.create(
-              { table: _table, ...field, required: false },
-              bare_tables
-            );
-          else await Field.create({ table: _table, ...field }, bare_tables);
-        } else if (
-          exfield &&
-          !(
-            _table.name === "users" &&
-            (field.name === "email" || field.name === "role_id")
-          ) &&
-          exfield.type
-        ) {
-          const { id, table_id, ...updrow } = field;
-          await exfield.update(updrow);
+    // tables with a provider go last because they can depend on presence
+    // of other tables
+    const packTables = pack.tables.sort((left, right) =>
+      left.provider_name ? 1 : right.provider_name ? -1 : 0
+    );
+    for (const tableSpec of packTables) {
+      if (tableSpec.name !== "users") {
+        let tbl_pk;
+        const existing = Table.findOne({ name: tableSpec.name });
+        getState().log(
+          5,
+          `Restoring table pack name=${
+            tableSpec.name
+          } existing=${!!existing} tenant=${db.getTenantSchema()}`
+        );
+        if (existing) {
+          existing.client = client;
+          tbl_pk = await existing.getField(existing.pk_name);
+          const {
+            id,
+            ownership_field_id,
+            ownership_field_name,
+            triggers,
+            constraints,
+            fields,
+            ...updrow
+          } = tableSpec;
+          delete updrow.client;
+
+          await existing.update(updrow);
+        } else {
+          tableSpec.min_role_read = old_to_new_role(tableSpec.min_role_read);
+          tableSpec.min_role_write = old_to_new_role(tableSpec.min_role_write);
+          const table = await Table.create(tableSpec.name, {
+            client,
+            ...tableSpec,
+          });
+          [tbl_pk] = table.getFields();
+        } //set pk
+        const pack_pk = tableSpec.fields.find((f) => f.primary_key);
+        if (pack_pk && tbl_pk) {
+          await tbl_pk.update(pack_pk);
         }
       }
-    for (const { table, ...trigger } of tableSpec.triggers || []) {
-      trigger.min_role = old_to_new_role(trigger.min_role);
-      await Trigger.create({ table: _table, ...trigger }); //legacy, not in new packs
     }
-    const existing_constraints = _table.constraints;
-    for (const constraint of tableSpec.constraints || []) {
-      if (
-        !existing_constraints.find(
-          (excon) =>
-            excon.type === constraint.type &&
-            isEqual(excon.configuration, constraint.configuration)
+    for (const tableSpec of pack.tables) {
+      const _table = Table.findOne({ name: tableSpec.name });
+      if (!_table) throw new Error(`Unable to find table '${tableSpec.name}'`);
+      _table.client = client;
+      const exfields = _table.getFields();
+      if (!_table.provider_name)
+        for (const field of tableSpec.fields) {
+          const exfield = exfields.find((f) => f.name === field.name);
+          if (
+            !(
+              (_table.name === "users" &&
+                (field.name === "email" || field.name === "role_id")) ||
+              exfield
+            )
+          ) {
+            if (_table.name === "users" && field.required)
+              await Field.create(
+                { table: _table, ...field, required: false },
+                bare_tables
+              );
+            else await Field.create({ table: _table, ...field }, bare_tables);
+          } else if (
+            exfield &&
+            !(
+              _table.name === "users" &&
+              (field.name === "email" || field.name === "role_id")
+            ) &&
+            exfield.type
+          ) {
+            const { id, table_id, ...updrow } = field;
+            exfield.table = _table;
+            await exfield.update(updrow);
+          }
+        }
+      for (const { table, ...trigger } of tableSpec.triggers || []) {
+        trigger.min_role = old_to_new_role(trigger.min_role);
+        await Trigger.create({ table: _table, ...trigger }, client); //legacy, not in new packs
+      }
+      const existing_constraints = _table.constraints;
+      for (const constraint of tableSpec.constraints || []) {
+        if (
+          !existing_constraints.find(
+            (excon) =>
+              excon.type === constraint.type &&
+              isEqual(excon.configuration, constraint.configuration)
+          )
         )
-      )
-        await TableConstraint.create({ table: _table, ...constraint });
-    }
-    if (tableSpec.ownership_field_name) {
-      const owner_field = await Field.findOne({
-        table_id: _table.id,
-        name: tableSpec.ownership_field_name,
-      });
-      await _table.update({ ownership_field_id: owner_field.id });
-    }
-  }
-  for (const viewSpec of pack.views) {
-    viewSpec.min_role = old_to_new_role(viewSpec.min_role);
-    const { table, on_menu, menu_label, on_root_page, ...viewNoTable } =
-      viewSpec;
-    const vtable = Table.findOne({ name: table });
-    const existing = View.findOne({ name: viewNoTable.name });
-    if (existing?.id) {
-      await View.update(viewNoTable, existing.id);
-    } else {
-      await View.create({
-        ...viewNoTable,
-        table_id: vtable ? vtable.id : null,
-      });
-    }
-    if (menu_label)
-      await add_to_menu({
-        label: menu_label,
-        type: "View",
-        viewname: viewSpec.name,
-        min_role: viewSpec.min_role || 100,
-      });
-  }
-  for (const triggerSpec of pack.triggers || []) {
-    triggerSpec.min_role = old_to_new_role(triggerSpec.min_role);
-    let id;
-    const existing = await Trigger.findOne({ name: triggerSpec.name });
-    if (existing) {
-      const { table_name, steps, ...tsNoTableName } = triggerSpec;
-      if (table_name)
-        tsNoTableName.table_id = Table.findOne({ name: table_name })?.id;
-      await Trigger.update(existing.id, tsNoTableName);
-      id = existing.id;
-    } else {
-      const newTrigger = await Trigger.create(triggerSpec);
-      id = newTrigger.id;
-    }
-    if (triggerSpec.action === "Workflow" && triggerSpec.steps) {
-      await WorkflowStep.deleteForTrigger(id);
-      for (const step of triggerSpec.steps) {
-        await WorkflowStep.create({ ...step, trigger_id: id });
+          await TableConstraint.create(
+            { table: _table, ...constraint },
+            client
+          );
+      }
+      if (tableSpec.ownership_field_name) {
+        const owner_field = await Field.findOne({
+          table_id: _table.id,
+          name: tableSpec.ownership_field_name,
+        });
+        await _table.update({ ownership_field_id: owner_field.id });
       }
     }
-  }
-
-  for (const pageFullSpec of pack.pages || []) {
-    pageFullSpec.min_role = old_to_new_role(pageFullSpec.min_role);
-    const { root_page_for_roles, menu_label, ...pageSpec } = pageFullSpec;
-    const existing = Page.findOne({ name: pageSpec.name });
-    if (existing?.id) await Page.update(existing.id, pageSpec);
-    else await Page.create(pageSpec as PagePack);
-    for (const role of root_page_for_roles || []) {
-      const current_root = getState().getConfigCopy(role + "_home", "");
-      if (!current_root || current_root === "")
-        await getState().setConfig(role + "_home", pageSpec.name);
-    }
-    if (menu_label)
-      await add_to_menu({
-        label: menu_label,
-        type: "Page",
-        pagename: pageSpec.name,
-        min_role: pageSpec.min_role,
-      });
-  }
-
-  for (const pageGroupSpec of pack.page_groups || []) {
-    pageGroupSpec.min_role = old_to_new_role(pageGroupSpec.min_role);
-    const { members, ...pageGroupNoMembers } = pageGroupSpec;
-    const existing = PageGroup.findOne({ name: pageGroupSpec.name });
-    if (existing?.id) {
-      await existing.clearMembers(); // or merge ?
-      await PageGroup.update(existing.id, pageGroupNoMembers);
-    } else await PageGroup.create(pageGroupNoMembers);
-    const group = PageGroup.findOne({ name: pageGroupSpec.name });
-    if (!group)
-      throw new Error(`Unable to create page group '${pageGroupSpec.name}'`);
-    for (const member of members || []) {
-      const { page_name, ...memberNoPageName } = member;
-      const page = Page.findOne({ name: page_name });
-      if (!page) throw new Error(`Unable to find page '${member.page_name}'`);
-      await group.addMember({ ...memberNoPageName, page_id: page.id! });
-    }
-  }
-
-  for (const tag of pack.tags || []) {
-    const entries = tag.entries
-      ? tag.entries.map((e) => {
-          const result: any = {};
-          if (e.page_name) {
-            const page = Page.findOne({ name: e.page_name });
-            if (!page) throw new Error(`Unable to find page '${e.page_name}'`);
-            result.page_id = page.id;
-          }
-          if (e.view_name) {
-            const view = View.findOne({ name: e.view_name });
-            if (!view) throw new Error(`Unable to find view '${e.view_name}'`);
-            result.view_id = view.id;
-          }
-          if (e.table_name) {
-            const table = Table.findOne({ name: e.table_name });
-            if (!table)
-              throw new Error(`Unable to find table '${e.table_name}'`);
-            result.table_id = table.id;
-          }
-          if (e.trigger_name) {
-            const trigger = Trigger.findOne({ name: e.trigger_name });
-            if (!trigger)
-              throw new Error(`Unable to find trigger '${e.trigger_name}'`);
-            result.trigger_id = trigger.id;
-          }
-          return result;
-        })
-      : undefined;
-    const existing = await Tag.findOne({ name: tag.name });
-    if (!existing) await Tag.create({ name: tag.name, entries });
-    else {
-      for (const entry of entries || []) {
-        await TagEntry.create({ tag_id: existing.id, ...entry });
-      }
-    }
-  }
-  for (const model of pack.models || []) {
-    const mTbl = Table.findOne({ name: model.table_name });
-    if (!mTbl) throw new Error(`Unable to find table '${model.table_name}'`);
-    if (!mTbl.id) throw new Error(`Table '${model.table_name}' has no id`);
-    const { table_name, ...cfg } = model.configuration;
-    if (table_name) {
-      if (table_name === mTbl.name) cfg.table_id = mTbl.id;
-      else {
-        const cfgTbl = Table.findOne({ name: table_name });
-        if (!cfgTbl) throw new Error(`Unable to find table '${table_name}'`);
-        cfg.table_id = cfgTbl.id;
-      }
-    }
-    const existing = await Model.findOne({
-      name: model.name,
-      table_id: mTbl.id,
-    });
-    if (existing)
-      await existing.update({
-        modelpattern: model.modelpattern,
-        configuration: cfg,
-      });
-    else
-      await Model.create({
-        name: model.name,
-        table_id: mTbl.id,
-        modelpattern: model.modelpattern,
-        configuration: cfg,
-      });
-  }
-
-  for (const modelInst of pack.model_instances || []) {
-    const table = Table.findOne({ name: modelInst.table_name });
-    if (!table)
-      throw new Error(`Unable to find table '${modelInst.table_name}'`);
-    const model = await Model.findOne({
-      name: modelInst.model_name,
-      table_id: table.id,
-    });
-    if (!model)
-      throw new Error(`Unable to find table '${modelInst.model_name}'`);
-    const { model_name, ...mICfg }: any = modelInst;
-    mICfg.model_id = model.id;
-    const existing = await ModelInstance.findOne({
-      name: modelInst.name,
-      model_id: model.id,
-    });
-    if (existing) {
-      const { id, table_name, ...updrow } = mICfg;
-      await existing.update(updrow);
-    } else await ModelInstance.create(mICfg);
-  }
-
-  for (const eventLog of pack.event_logs || []) {
-    const { user_email, ...rest } = eventLog;
-    const eventLogCfg = rest as EventLogCfg;
-    if (user_email) {
-      const user = await User.findOne({ email: user_email });
-      if (user) eventLogCfg.user_id = user.id;
-      else {
-        getState().log(
-          2,
-          `User '${user_email}' not found for event log ${eventLog.event_type}`
+    for (const viewSpec of pack.views) {
+      viewSpec.min_role = old_to_new_role(viewSpec.min_role);
+      const { table, on_menu, menu_label, on_root_page, ...viewNoTable } =
+        viewSpec;
+      const vtable = Table.findOne({ name: table });
+      const existing = View.findOne({ name: viewNoTable.name });
+      if (existing?.id) {
+        await View.update(viewNoTable, existing.id, client);
+      } else {
+        await View.create(
+          {
+            ...viewNoTable,
+            table_id: vtable ? vtable.id : null,
+          },
+          client
         );
       }
+      if (menu_label)
+        await add_to_menu({
+          label: menu_label,
+          type: "View",
+          viewname: viewSpec.name,
+          min_role: viewSpec.min_role || 100,
+        });
     }
-    await EventLog.create(eventLogCfg);
-  }
-
-  if (pack.config) {
-    const state = getState();
-
-    for (const [k, v] of Object.entries(pack.config)) {
-      await state.setConfig(k, v);
+    for (const triggerSpec of pack.triggers || []) {
+      triggerSpec.min_role = old_to_new_role(triggerSpec.min_role);
+      let id;
+      const existing = await Trigger.findOne({ name: triggerSpec.name });
+      if (existing) {
+        const { table_name, steps, ...tsNoTableName } = triggerSpec;
+        if (table_name)
+          tsNoTableName.table_id = Table.findOne({ name: table_name })?.id;
+        await Trigger.update(existing.id, tsNoTableName, client);
+        id = existing.id;
+      } else {
+        const newTrigger = await Trigger.create(triggerSpec, client);
+        id = newTrigger.id;
+      }
+      if (triggerSpec.action === "Workflow" && triggerSpec.steps) {
+        await WorkflowStep.deleteForTrigger(id);
+        for (const step of triggerSpec.steps) {
+          await WorkflowStep.create({ ...step, trigger_id: id });
+        }
+      }
     }
-  }
 
-  if (pack.code_pages) {
-    const code_pages = getState().getConfigCopy("function_code_pages", {});
-    const function_code_pages_tags = getState().getConfigCopy(
-      "function_code_pages_tags",
-      {}
-    );
-
-    for (const { name, code, tags } of pack.code_pages) {
-      code_pages[name] = code;
-      function_code_pages_tags[name] = tags;
+    for (const pageFullSpec of pack.pages || []) {
+      pageFullSpec.min_role = old_to_new_role(pageFullSpec.min_role);
+      const { root_page_for_roles, menu_label, ...pageSpec } = pageFullSpec;
+      const existing = Page.findOne({ name: pageSpec.name });
+      if (existing?.id) await Page.update(existing.id, pageSpec);
+      else await Page.create(pageSpec as PagePack);
+      for (const role of root_page_for_roles || []) {
+        const current_root = getState().getConfigCopy(role + "_home", "");
+        if (!current_root || current_root === "")
+          await getState().setConfig(role + "_home", pageSpec.name);
+      }
+      if (menu_label)
+        await add_to_menu({
+          label: menu_label,
+          type: "Page",
+          pagename: pageSpec.name,
+          min_role: pageSpec.min_role,
+        });
     }
-    await getState().setConfig("function_code_pages", code_pages);
-    await getState().setConfig(
-      "function_code_pages_tags",
-      function_code_pages_tags
-    );
-  }
 
-  if (name) {
-    const existPacks = getState().getConfigCopy("installed_packs", []);
-    await getState().setConfig("installed_packs", [...existPacks, name]);
-  }
+    for (const pageGroupSpec of pack.page_groups || []) {
+      pageGroupSpec.min_role = old_to_new_role(pageGroupSpec.min_role);
+      const { members, ...pageGroupNoMembers } = pageGroupSpec;
+      const existing = PageGroup.findOne({ name: pageGroupSpec.name });
+      if (existing?.id) {
+        await existing.clearMembers(); // or merge ?
+        await PageGroup.update(existing.id, pageGroupNoMembers);
+      } else await PageGroup.create(pageGroupNoMembers);
+      const group = PageGroup.findOne({ name: pageGroupSpec.name });
+      if (!group)
+        throw new Error(`Unable to create page group '${pageGroupSpec.name}'`);
+      for (const member of members || []) {
+        const { page_name, ...memberNoPageName } = member;
+        const page = Page.findOne({ name: page_name });
+        if (!page) throw new Error(`Unable to find page '${member.page_name}'`);
+        await group.addMember({ ...memberNoPageName, page_id: page.id! });
+      }
+    }
+
+    for (const tag of pack.tags || []) {
+      const entries = tag.entries
+        ? tag.entries.map((e) => {
+            const result: any = {};
+            if (e.page_name) {
+              const page = Page.findOne({ name: e.page_name });
+              if (!page)
+                throw new Error(`Unable to find page '${e.page_name}'`);
+              result.page_id = page.id;
+            }
+            if (e.view_name) {
+              const view = View.findOne({ name: e.view_name });
+              if (!view)
+                throw new Error(`Unable to find view '${e.view_name}'`);
+              result.view_id = view.id;
+            }
+            if (e.table_name) {
+              const table = Table.findOne({ name: e.table_name });
+              if (!table)
+                throw new Error(`Unable to find table '${e.table_name}'`);
+              result.table_id = table.id;
+            }
+            if (e.trigger_name) {
+              const trigger = Trigger.findOne({ name: e.trigger_name });
+              if (!trigger)
+                throw new Error(`Unable to find trigger '${e.trigger_name}'`);
+              result.trigger_id = trigger.id;
+            }
+            return result;
+          })
+        : undefined;
+      const existing = await Tag.findOne({ name: tag.name });
+      if (!existing) await Tag.create({ name: tag.name, entries });
+      else {
+        for (const entry of entries || []) {
+          await TagEntry.create({ tag_id: existing.id, ...entry });
+        }
+      }
+    }
+    for (const model of pack.models || []) {
+      const mTbl = Table.findOne({ name: model.table_name });
+      if (!mTbl) throw new Error(`Unable to find table '${model.table_name}'`);
+      if (!mTbl.id) throw new Error(`Table '${model.table_name}' has no id`);
+      const { table_name, ...cfg } = model.configuration;
+      if (table_name) {
+        if (table_name === mTbl.name) cfg.table_id = mTbl.id;
+        else {
+          const cfgTbl = Table.findOne({ name: table_name });
+          if (!cfgTbl) throw new Error(`Unable to find table '${table_name}'`);
+          cfg.table_id = cfgTbl.id;
+        }
+      }
+      const existing = await Model.findOne({
+        name: model.name,
+        table_id: mTbl.id,
+      });
+      if (existing)
+        await existing.update({
+          modelpattern: model.modelpattern,
+          configuration: cfg,
+        });
+      else
+        await Model.create({
+          name: model.name,
+          table_id: mTbl.id,
+          modelpattern: model.modelpattern,
+          configuration: cfg,
+        });
+    }
+
+    for (const modelInst of pack.model_instances || []) {
+      const table = Table.findOne({ name: modelInst.table_name });
+      if (!table)
+        throw new Error(`Unable to find table '${modelInst.table_name}'`);
+      const model = await Model.findOne({
+        name: modelInst.model_name,
+        table_id: table.id,
+      });
+      if (!model)
+        throw new Error(`Unable to find table '${modelInst.model_name}'`);
+      const { model_name, ...mICfg }: any = modelInst;
+      mICfg.model_id = model.id;
+      const existing = await ModelInstance.findOne({
+        name: modelInst.name,
+        model_id: model.id,
+      });
+      if (existing) {
+        const { id, table_name, ...updrow } = mICfg;
+        await existing.update(updrow);
+      } else await ModelInstance.create(mICfg);
+    }
+
+    for (const eventLog of pack.event_logs || []) {
+      const { user_email, ...rest } = eventLog;
+      const eventLogCfg = rest as EventLogCfg;
+      if (user_email) {
+        const user = await User.findOne({ email: user_email });
+        if (user) eventLogCfg.user_id = user.id;
+        else {
+          getState().log(
+            2,
+            `User '${user_email}' not found for event log ${eventLog.event_type}`
+          );
+        }
+      }
+      await EventLog.create(eventLogCfg);
+    }
+
+    if (pack.config) {
+      const state = getState();
+
+      for (const [k, v] of Object.entries(pack.config)) {
+        await state.setConfig(k, v);
+      }
+    }
+
+    if (pack.code_pages) {
+      const code_pages = getState().getConfigCopy("function_code_pages", {});
+      const function_code_pages_tags = getState().getConfigCopy(
+        "function_code_pages_tags",
+        {}
+      );
+
+      for (const { name, code, tags } of pack.code_pages) {
+        code_pages[name] = code;
+        function_code_pages_tags[name] = tags;
+      }
+      await getState().setConfig("function_code_pages", code_pages);
+      await getState().setConfig(
+        "function_code_pages_tags",
+        function_code_pages_tags
+      );
+    }
+
+    if (name) {
+      const existPacks = getState().getConfigCopy("installed_packs", []);
+      await getState().setConfig("installed_packs", [...existPacks, name]);
+    }
+  });
 };
 
 /**

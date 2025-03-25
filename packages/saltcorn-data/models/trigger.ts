@@ -149,11 +149,15 @@ class Trigger implements AbstractTrigger {
    * @param row
    * @returns {Promise<void>}
    */
-  static async update(id: number, row: Row): Promise<void> {
+  static async update(
+    id: number,
+    row: Row,
+    client?: DatabaseClient
+  ): Promise<void> {
     const { getState } = require("../db/state");
     getState().log(6, `Update trigger ID=${id} Row=${JSON.stringify(row)}`);
     if (row.table_id === "") row.table_id = null;
-    await db.update("_sc_triggers", row, id);
+    await db.update("_sc_triggers", row, id, { client });
   }
 
   /**
@@ -161,7 +165,10 @@ class Trigger implements AbstractTrigger {
    * @param f
    * @returns {Promise<Trigger>}
    */
-  static async create(f: TriggerCfg): Promise<Trigger> {
+  static async create(
+    f: TriggerCfg,
+    client?: DatabaseClient
+  ): Promise<Trigger> {
     const trigger = new Trigger(f);
     const { id, table_name, ...rest } = trigger;
     if (table_name && !rest.table_id) {
@@ -169,7 +176,7 @@ class Trigger implements AbstractTrigger {
       const table = Table.findOne(table_name);
       rest.table_id = table.id;
     }
-    trigger.id = await db.insert("_sc_triggers", rest);
+    trigger.id = await db.insert("_sc_triggers", rest, { client });
     return trigger;
   }
 

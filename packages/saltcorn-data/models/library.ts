@@ -5,7 +5,12 @@
  * @subcategory models
  */
 import db from "../db";
-import type { Where, SelectOptions, Row } from "@saltcorn/db-common/internal";
+import type {
+  Where,
+  SelectOptions,
+  Row,
+  DatabaseClient,
+} from "@saltcorn/db-common/internal";
 import type { LibraryCfg } from "@saltcorn/types/model-abstracts/abstract_library";
 
 const { traverseSync } = require("./layout");
@@ -35,13 +40,20 @@ class Library {
   /**
    * @param {object} lib_in
    */
-  static async create(lib_in: LibraryCfg): Promise<void> {
+  static async create(
+    lib_in: LibraryCfg,
+    client?: DatabaseClient
+  ): Promise<void> {
     const lib = new Library(lib_in);
-    await db.insert("_sc_library", {
-      name: lib.name,
-      icon: lib.icon,
-      layout: lib.layout,
-    });
+    await db.insert(
+      "_sc_library",
+      {
+        name: lib.name,
+        icon: lib.icon,
+        layout: lib.layout,
+      },
+      { client }
+    );
   }
 
   /**
@@ -69,8 +81,11 @@ class Library {
    * @param {*} where
    * @returns {Library}
    */
-  static async findOne(where: Where): Promise<Library> {
-    const u = await db.selectMaybeOne("_sc_library", where);
+  static async findOne(
+    where: Where,
+    selectopts?: SelectOptions
+  ): Promise<Library> {
+    const u = await db.selectMaybeOne("_sc_library", where, selectopts);
     return u ? new Library(u) : u;
   }
 
@@ -127,17 +142,21 @@ class Library {
   /**
    * @returns {Promise<void>}
    */
-  async delete(): Promise<void> {
+  async delete(client?: DatabaseClient): Promise<void> {
     const schema = db.getTenantSchemaPrefix();
-    await db.query(`delete FROM ${schema}_sc_library WHERE id = $1`, [this.id]);
+    await db.query(
+      `delete FROM ${schema}_sc_library WHERE id = $1`,
+      [this.id],
+      client
+    );
   }
 
   /**
    * @param {*} row
    * @returns {Promise<void>}
    */
-  async update(row: Row): Promise<void> {
-    await db.update("_sc_library", row, this.id);
+  async update(row: Row, client?: DatabaseClient): Promise<void> {
+    await db.update("_sc_library", row, this.id, { client });
   }
 }
 
