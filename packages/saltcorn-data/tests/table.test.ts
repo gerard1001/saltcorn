@@ -2452,6 +2452,31 @@ describe("agg latest multiple test", () => {
     });
     expect(Math.round(michaels[0].last_temp)).toBe(45);
   });
+  it("should get aggregations where equals null", async () => {
+    const patients = Table.findOne({ name: "patients" });
+    assertIsSet(patients);
+    const michaels = await patients.getJoinedRows({
+      orderBy: "id",
+      where: { id: 2 },
+      aggregations: {
+        count_norm_null: {
+          table: "readings",
+          ref: "patient_id",
+          field: "id",
+          aggregate: "Count",
+          where: { normalised: null },
+        },
+        count_all: {
+          table: "readings",
+          ref: "patient_id",
+          field: "id",
+          aggregate: "Count",
+        },
+      },
+    });
+    expect(Math.round(michaels[0].count_all)).toBe(2);
+    expect(Math.round(michaels[0].count_norm_null)).toBe(1);
+  });
 });
 
 describe("Table insert/update expanded joinfields", () => {
