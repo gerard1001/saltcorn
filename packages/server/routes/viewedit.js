@@ -1026,7 +1026,7 @@ router.post(
       });
       return;
     }
-    const layout = await f.run(prompt, mode, table);
+    const layout = await f.run(prompt, mode, table, req);
     res.json({ success: "ok", layout });
   })
 );
