@@ -236,6 +236,7 @@ const configuration_workflow = (req: Req) =>
           const has_select2 = Object.keys(getState().keyFieldviews).includes(
             "select2"
           );
+          const { on_done_redirect, ...current_filter_state } = req.query;
 
           return {
             fields: fields
@@ -246,6 +247,7 @@ const configuration_workflow = (req: Req) =>
             child_field_list: [table.name],
             agg_field_opts,
             agg_fieldview_options,
+            current_filter_state,
             roles,
             builtInActions: ["Clear"],
             actions,
@@ -694,6 +696,7 @@ const run = async (
         action_icon,
         action_name,
         action_row_variable,
+        action_class,
         configuration,
         confirm,
       } = segment;
@@ -710,6 +713,7 @@ const run = async (
               onclick: `${confirmStr}clear_state('${
                 configuration?.omit_fields || ""
               }', this)`,
+              class: [action_class],
               href: "javascript:void(0)",
             },
             action_icon
@@ -723,9 +727,11 @@ const run = async (
               onClick: `${confirmStr}clear_state('${
                 configuration?.omit_fields || ""
               }', this)`,
-              class: `btn ${action_style || "btn-primary"} ${
-                action_size || ""
-              }`,
+              class: [
+                `btn ${action_style || "btn-primary"}`,
+                action_size,
+                action_class,
+              ],
             },
             action_icon
               ? i({ class: action_icon }) + (label ? "&nbsp;" : "")
