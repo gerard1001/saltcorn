@@ -102,7 +102,7 @@ const loadTextStyleOptions = () => {
     selectIdx,
     sliceEnd === -1 ? selectIdx + 800 : sliceEnd
   );
-  const optionRegex = /<option\s+value=\"([^\"]*)\"/g;
+  const optionRegex = /<option\s+value="([^"]*)"/g;
   const values = new Set();
   let match;
   while ((match = optionRegex.exec(slice))) {
