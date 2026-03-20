@@ -78,6 +78,7 @@ import { ListColumn } from "./elements/ListColumn";
 import { ListColumns } from "./elements/ListColumns";
 import { Prompt } from "./elements/Prompt";
 import { recursivelyCloneToElems } from "./elements/Clone";
+import { Page } from "./elements/Page";
 
 const { Provider } = optionsCtx;
 
@@ -1022,6 +1023,7 @@ const Builder = ({ options, layout, mode }) => {
           ListColumns,
           LibraryElem,
           Prompt,
+          Page
         }}
       >
         <Provider value={options}>
