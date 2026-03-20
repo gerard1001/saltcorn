@@ -1018,7 +1018,7 @@ router.post(
   "/copilot-generate-layout",
   isAdminOrHasConfigMinRole(["min_role_edit_views", "min_role_edit_pages"]),
   error_catcher(async (req, res) => {
-    const { mode, table, prompt } = req.body;
+    const { mode, table, prompt, existing_layout } = req.body;
     const f = getState().functions.copilot_generate_layout;
     if (!f) {
       res.json({
@@ -1026,7 +1026,7 @@ router.post(
       });
       return;
     }
-    const layout = await f.run(prompt, mode, table);
+    const layout = await f.run(prompt, mode, table, existing_layout);
     res.json({ success: "ok", layout });
   })
 );

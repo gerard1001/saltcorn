@@ -14,8 +14,15 @@ import React, {
 } from "react";
 import { createPortal } from "react-dom";
 import useTranslation from "../hooks/useTranslation";
-import { Editor, Frame, Element, Selector, useEditor, DefaultEventHandlers } from "@craftjs/core";
-import { Layers, useLayer } from "@craftjs/layers"
+import {
+  Editor,
+  Frame,
+  Element,
+  Selector,
+  useEditor,
+  DefaultEventHandlers,
+} from "@craftjs/core";
+import { Layers, useLayer } from "@craftjs/layers";
 import { Text } from "./elements/Text";
 import { Field } from "./elements/Field";
 import { JoinField } from "./elements/JoinField";
@@ -114,34 +121,37 @@ const SettingsPanel = ({ isEnlarged, setIsEnlarged }) => {
   const { t } = useTranslation();
   const options = useContext(optionsCtx);
 
-  const { actions, selected, selectedCount, query } = useEditor((state, query) => {
-    const selectedNodes = getSelectedNodes(state.events.selected);
-    const currentNodeId = selectedNodes.length === 1 ? selectedNodes[0] : null;
-    let selected;
+  const { actions, selected, selectedCount, query } = useEditor(
+    (state, query) => {
+      const selectedNodes = getSelectedNodes(state.events.selected);
+      const currentNodeId =
+        selectedNodes.length === 1 ? selectedNodes[0] : null;
+      let selected;
 
-    if (currentNodeId) {
-      selected = {
-        id: currentNodeId,
-        name: state.nodes[currentNodeId].data.name,
-        parent: state.nodes[currentNodeId].data.parent,
-        displayName:
-          state.nodes[currentNodeId].data &&
-          state.nodes[currentNodeId].data.displayName,
-        settings:
-          state.nodes[currentNodeId].related &&
-          state.nodes[currentNodeId].related.settings,
-        isDeletable: query.node(currentNodeId).isDeletable(),
-        children:
-          state.nodes[currentNodeId].data &&
-          state.nodes[currentNodeId].data.nodes,
+      if (currentNodeId) {
+        selected = {
+          id: currentNodeId,
+          name: state.nodes[currentNodeId].data.name,
+          parent: state.nodes[currentNodeId].data.parent,
+          displayName:
+            state.nodes[currentNodeId].data &&
+            state.nodes[currentNodeId].data.displayName,
+          settings:
+            state.nodes[currentNodeId].related &&
+            state.nodes[currentNodeId].related.settings,
+          isDeletable: query.node(currentNodeId).isDeletable(),
+          children:
+            state.nodes[currentNodeId].data &&
+            state.nodes[currentNodeId].data.nodes,
+        };
+      }
+
+      return {
+        selected,
+        selectedCount: selectedNodes.length,
       };
     }
-
-    return {
-      selected,
-      selectedCount: selectedNodes.length,
-    };
-  });
+  );
 
   /** */
   const deleteThis = () => {
@@ -172,7 +182,11 @@ const SettingsPanel = ({ isEnlarged, setIsEnlarged }) => {
           .map((nodeId) => (typeof nodeId === "string" ? nodeId : nodeId?.id))
           .filter((nodeId) => nodeId && nodeId !== "ROOT");
         nodeIds.forEach((nodeId) => {
-          try { actions.delete(nodeId); } catch (e) { /* node may already be deleted */ }
+          try {
+            actions.delete(nodeId);
+          } catch (e) {
+            /* node may already be deleted */
+          }
         });
       }
       if (selected) {
@@ -196,7 +210,7 @@ const SettingsPanel = ({ isEnlarged, setIsEnlarged }) => {
         if (keyCode === 37 && selected.parent)
           //left
           actions.selectNode(selected.parent);
-  
+
         if (keyCode === 39) {
           //right
           if (selected.children && selected.children.length > 0) {
@@ -225,12 +239,12 @@ const SettingsPanel = ({ isEnlarged, setIsEnlarged }) => {
         const serializedIds = new Set(Object.keys(serialized));
         const currentSelected = query.getEvent("selected");
         const rawSelected = getSelectedNodes(currentSelected);
-        if (rawSelected.length === 0 && selected?.id) rawSelected.push(selected.id);
+        if (rawSelected.length === 0 && selected?.id)
+          rawSelected.push(selected.id);
         const selectedNodes = rawSelected
           .map((nodeId) => (typeof nodeId === "string" ? nodeId : nodeId?.id))
           .filter(
-            (nodeId) =>
-              nodeId && nodeId !== "ROOT" && serializedIds.has(nodeId)
+            (nodeId) => nodeId && nodeId !== "ROOT" && serializedIds.has(nodeId)
           );
         if (selectedNodes.length === 0) return;
 
@@ -243,11 +257,7 @@ const SettingsPanel = ({ isEnlarged, setIsEnlarged }) => {
           navigator.clipboard.writeText(JSON.stringify(layout, null, 2));
         } else {
           const layouts = selectedNodes.map((nodeId) => {
-            const { layout } = craftToSaltcorn(
-              serialized,
-              nodeId,
-              options
-            );
+            const { layout } = craftToSaltcorn(serialized, nodeId, options);
             return layout;
           });
           navigator.clipboard.writeText(
@@ -260,12 +270,12 @@ const SettingsPanel = ({ isEnlarged, setIsEnlarged }) => {
         const serializedIds = new Set(Object.keys(serialized));
         const currentSelected = query.getEvent("selected");
         const rawSelected = getSelectedNodes(currentSelected);
-        if (rawSelected.length === 0 && selected?.id) rawSelected.push(selected.id);
+        if (rawSelected.length === 0 && selected?.id)
+          rawSelected.push(selected.id);
         const selectedNodes = rawSelected
           .map((nodeId) => (typeof nodeId === "string" ? nodeId : nodeId?.id))
           .filter(
-            (nodeId) =>
-              nodeId && nodeId !== "ROOT" && serializedIds.has(nodeId)
+            (nodeId) => nodeId && nodeId !== "ROOT" && serializedIds.has(nodeId)
           );
         if (selectedNodes.length === 0) return;
 
@@ -279,11 +289,7 @@ const SettingsPanel = ({ isEnlarged, setIsEnlarged }) => {
           actions.delete(selectedNodes[0]);
         } else {
           const layouts = selectedNodes.map((nodeId) => {
-            const { layout } = craftToSaltcorn(
-              serialized,
-              nodeId,
-              options
-            );
+            const { layout } = craftToSaltcorn(serialized, nodeId, options);
             return layout;
           });
           navigator.clipboard.writeText(
@@ -313,8 +319,11 @@ const SettingsPanel = ({ isEnlarged, setIsEnlarged }) => {
         actions.history.redo();
       }
     }
-    if ((tagName === "body" || tagName === "button") &&
-        (event.ctrlKey || event.metaKey) && event.keyCode == 65) {
+    if (
+      (tagName === "body" || tagName === "button") &&
+      (event.ctrlKey || event.metaKey) &&
+      event.keyCode == 65
+    ) {
       event.preventDefault();
       const rootChildren = query.node("ROOT").childNodes();
       if (rootChildren.length > 0) {
@@ -359,6 +368,14 @@ const SettingsPanel = ({ isEnlarged, setIsEnlarged }) => {
 
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState(null);
+  const [editPrompt, setEditPrompt] = useState("");
+  const [editGenerating, setEditGenerating] = useState(false);
+  const [editError, setEditError] = useState(null);
+
+  useEffect(() => {
+    setEditPrompt("");
+    setEditError(null);
+  }, [selected?.id]);
 
   // Find prompt nodes: check children of selected, or siblings if selected is a Prompt
   const findPromptContext = () => {
@@ -464,6 +481,56 @@ const SettingsPanel = ({ isEnlarged, setIsEnlarged }) => {
     }
   };
 
+  const handleEditWithCopilot = async () => {
+    if (!selected || !selected.parent || !editPrompt.trim()) return;
+    setEditGenerating(true);
+    setEditError(null);
+    try {
+      const serialized = JSON.parse(query.serialize());
+      const { layout: existingLayout } = craftToSaltcorn(
+        serialized,
+        selected.id,
+        options
+      );
+      const siblings = query.node(selected.parent).childNodes();
+      const insertIndex = siblings.findIndex((sib) => sib === selected.id);
+
+      const res = await fetch("/viewedit/copilot-generate-layout", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "CSRF-Token": options.csrfToken,
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        body: JSON.stringify({
+          prompt: editPrompt,
+          mode: options.mode,
+          table: options.tableName,
+          existing_layout: existingLayout,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setEditError(data.error);
+      } else if (data.layout) {
+        actions.delete(selected.id);
+        layoutToNodes(
+          data.layout,
+          query,
+          actions,
+          selected.parent,
+          options,
+          insertIndex >= 0 ? insertIndex : undefined
+        );
+        setEditPrompt("");
+      }
+    } catch (err) {
+      setEditError(err.message || "Generation failed");
+    } finally {
+      setEditGenerating(false);
+    }
+  };
+
   return (
     <div className="settings-panel card mt-1">
       <div className="card-header px-2 py-1 d-flex justify-content-between align-items-center">
@@ -488,8 +555,16 @@ const SettingsPanel = ({ isEnlarged, setIsEnlarged }) => {
       <div className="card-body p-2">
         {selectedCount > 1 ? (
           <div>
-            <p><strong>{selectedCount} {t("elements selected")}</strong></p>
-            <p className="text-muted small">{t("Multi-selection active. Use Shift+Click to add/remove elements.")}</p>
+            <p>
+              <strong>
+                {selectedCount} {t("elements selected")}
+              </strong>
+            </p>
+            <p className="text-muted small">
+              {t(
+                "Multi-selection active. Use Shift+Click to add/remove elements."
+              )}
+            </p>
           </div>
         ) : selected ? (
           <Fragment>
@@ -520,9 +595,44 @@ const SettingsPanel = ({ isEnlarged, setIsEnlarged }) => {
                 {t("Clone")}
               </button>
             )}
+            {options.has_copilot_generate && selected.id !== "ROOT" && (
+              <div className="mt-2">
+                <label className="form-label small">{t("Copilot edit")}</label>
+                <textarea
+                  rows="3"
+                  className="form-control form-control-sm"
+                  value={editPrompt}
+                  placeholder={t("Describe how to change this element...")}
+                  onChange={(e) => setEditPrompt(e.target.value)}
+                />
+                {editError && (
+                  <div className="text-danger small mt-1">{editError}</div>
+                )}
+                <button
+                  className="btn btn-sm btn-primary w-100 mt-1"
+                  onClick={handleEditWithCopilot}
+                  disabled={editGenerating || !editPrompt.trim()}
+                >
+                  {editGenerating ? (
+                    <Fragment>
+                      <span
+                        className="spinner-border spinner-border-sm me-1"
+                        role="status"
+                      ></span>
+                      {t("Applying...")}
+                    </Fragment>
+                  ) : (
+                    <Fragment>
+                      <i className="fas fa-robot me-1"></i>
+                      {t("Apply")}
+                    </Fragment>
+                  )}
+                </button>
+              </div>
+            )}
             <div className="mt-2">
               {selected.settings && React.createElement(selected.settings)}
-            </div>            
+            </div>
           </Fragment>
         ) : (
           t("No element selected")
@@ -567,7 +677,12 @@ function useWindowDimensions() {
  * @namespace
  */
 
-const hiddenColumnParents = new Set(["Card", "Container", "DropMenu", "ListColumn"]);
+const hiddenColumnParents = new Set([
+  "Card",
+  "Container",
+  "DropMenu",
+  "ListColumn",
+]);
 
 const CustomLayerComponent = memo(({ children }) => {
   const [isMouseOver, setIsMouseOver] = useState(false);
@@ -580,93 +695,120 @@ const CustomLayerComponent = memo(({ children }) => {
     actions: { toggleLayer, setExpandedState },
     connectors: { layer, drag, layerHeader },
   } = useLayer((layer) => {
-      return {
-        expanded: layer?.expanded,
-      };
+    return {
+      expanded: layer?.expanded,
+    };
   });
 
-  const { displayName, hasNodes, isHiddenColumn, selected, parentId, childIndex, siblingCount, canMoveOut, connectors: editorConnectors, actions: editorActions, query } = useEditor((state) => {
-      const node = state.nodes[id];
-      const data = node?.data;
+  const {
+    displayName,
+    hasNodes,
+    isHiddenColumn,
+    selected,
+    parentId,
+    childIndex,
+    siblingCount,
+    canMoveOut,
+    connectors: editorConnectors,
+    actions: editorActions,
+    query,
+  } = useEditor((state) => {
+    const node = state.nodes[id];
+    const data = node?.data;
 
-      let name = data?.custom?.displayName || data?.props?.custom?.displayName || data?.displayName || data?.name || id;
-      if (name === "ROOT" || name === "Canvas") {
-          name = data?.name || name;
-      }
+    let name =
+      data?.custom?.displayName ||
+      data?.props?.custom?.displayName ||
+      data?.displayName ||
+      data?.name ||
+      id;
+    if (name === "ROOT" || name === "Canvas") {
+      name = data?.name || name;
+    }
 
-      // Rename linked Columns for Tabs and Table
-      if (name === "Column" && data?.parent) {
-          const parentNode = state.nodes[data.parent];
-          const parentName = parentNode?.data?.displayName || parentNode?.data?.name;
-          const parentLinked = parentNode?.data?.linkedNodes;
-          if (parentLinked) {
-              const key = Object.keys(parentLinked).find(k => parentLinked[k] === id);
-              if (key) {
-                  if (parentName === "Tabs") {
-                      const index = parseInt(key.replace("Tab", ""), 10);
-                      if (!isNaN(index)) {
-                          name = `Tab ${index + 1}`;
-                      }
-                  } else if (parentName === "Table") {
-                      // key is "cell_0_0", "cell_1_2", etc.
-                      const match = key.match(/^cell_(\d+)_(\d+)$/);
-                      if (match) {
-                          name = `R${parseInt(match[1], 10) + 1}C${parseInt(match[2], 10) + 1}`;
-                      }
-                  }
-              }
+    // Rename linked Columns for Tabs and Table
+    if (name === "Column" && data?.parent) {
+      const parentNode = state.nodes[data.parent];
+      const parentName =
+        parentNode?.data?.displayName || parentNode?.data?.name;
+      const parentLinked = parentNode?.data?.linkedNodes;
+      if (parentLinked) {
+        const key = Object.keys(parentLinked).find(
+          (k) => parentLinked[k] === id
+        );
+        if (key) {
+          if (parentName === "Tabs") {
+            const index = parseInt(key.replace("Tab", ""), 10);
+            if (!isNaN(index)) {
+              name = `Tab ${index + 1}`;
+            }
+          } else if (parentName === "Table") {
+            // key is "cell_0_0", "cell_1_2", etc.
+            const match = key.match(/^cell_(\d+)_(\d+)$/);
+            if (match) {
+              name = `R${parseInt(match[1], 10) + 1}C${parseInt(match[2], 10) + 1}`;
+            }
           }
+        }
       }
+    }
 
-      const nodes = data?.nodes;
-      const linkedNodes = data?.linkedNodes;
-      const hasChildren = (nodes && nodes.length > 0) || (linkedNodes && Object.keys(linkedNodes).length > 0);
+    const nodes = data?.nodes;
+    const linkedNodes = data?.linkedNodes;
+    const hasChildren =
+      (nodes && nodes.length > 0) ||
+      (linkedNodes && Object.keys(linkedNodes).length > 0);
 
-      // Check if this Column is a linked node of a Card/Container/Tabs/Table
-      let shouldHide = false;
-      if ((data?.displayName === "Column" || data?.name === "Column") && data?.parent) {
-          const parentNode = state.nodes[data.parent];
-          const parentName = parentNode?.data?.displayName || parentNode?.data?.name;
-          if (hiddenColumnParents.has(parentName)) {
-              const parentLinked = parentNode?.data?.linkedNodes;
-              if (parentLinked && Object.values(parentLinked).includes(id)) {
-                  shouldHide = true;
-              }
-          }
+    // Check if this Column is a linked node of a Card/Container/Tabs/Table
+    let shouldHide = false;
+    if (
+      (data?.displayName === "Column" || data?.name === "Column") &&
+      data?.parent
+    ) {
+      const parentNode = state.nodes[data.parent];
+      const parentName =
+        parentNode?.data?.displayName || parentNode?.data?.name;
+      if (hiddenColumnParents.has(parentName)) {
+        const parentLinked = parentNode?.data?.linkedNodes;
+        if (parentLinked && Object.values(parentLinked).includes(id)) {
+          shouldHide = true;
+        }
       }
+    }
 
-      const isSelected = state.events?.selected?.has?.(id) || (state.events?.selected === id);
+    const isSelected =
+      state.events?.selected?.has?.(id) || state.events?.selected === id;
 
-      const parent = data?.parent;
-      let childIx = -1;
-      let sibCount = 0;
-      if (parent && state.nodes[parent]) {
-          const parentNodes = state.nodes[parent]?.data?.nodes || [];
-          childIx = parentNodes.indexOf(id);
-          sibCount = parentNodes.length;
+    const parent = data?.parent;
+    let childIx = -1;
+    let sibCount = 0;
+    if (parent && state.nodes[parent]) {
+      const parentNodes = state.nodes[parent]?.data?.nodes || [];
+      childIx = parentNodes.indexOf(id);
+      sibCount = parentNodes.length;
+    }
+
+    let canMoveOut = false;
+    if (parent && state.nodes[parent]) {
+      const grandparent = state.nodes[parent]?.data?.parent;
+      if (grandparent && grandparent !== "ROOT" && state.nodes[grandparent]) {
+        const greatGrandparent = state.nodes[grandparent]?.data?.parent;
+        if (greatGrandparent && state.nodes[greatGrandparent]) {
+          canMoveOut = true;
+        }
       }
+    }
 
-      let canMoveOut = false;
-      if (parent && state.nodes[parent]) {
-          const grandparent = state.nodes[parent]?.data?.parent;
-          if (grandparent && grandparent !== "ROOT" && state.nodes[grandparent]) {
-              const greatGrandparent = state.nodes[grandparent]?.data?.parent;
-              if (greatGrandparent && state.nodes[greatGrandparent]) {
-                  canMoveOut = true;
-              }
-          }
-      }
-
-      return {
-          displayName: name,
-          hasNodes: hasChildren,
-          isHiddenColumn: shouldHide,
-          selected: isSelected,
-          parentId: parent,
-          childIndex: childIx,
-          siblingCount: sibCount,
-          canMoveOut,
-      };
+    return {
+      displayName: name,
+      hasNodes: hasChildren,
+      isHiddenColumn: shouldHide,
+      selected: isSelected,
+      parentId: parent,
+      childIndex: childIx,
+      siblingCount: sibCount,
+      canMoveOut,
+    };
   });
 
   const isRoot = id === "ROOT";
@@ -684,7 +826,10 @@ const CustomLayerComponent = memo(({ children }) => {
   if (isHiddenColumn || isRoot) {
     return (
       <div
-        ref={(dom) => { layer(dom); if (dom) editorConnectors.drop(dom, id); }}
+        ref={(dom) => {
+          layer(dom);
+          if (dom) editorConnectors.drop(dom, id);
+        }}
         style={{ marginLeft: "-14px" }}
       >
         {children}
@@ -693,121 +838,168 @@ const CustomLayerComponent = memo(({ children }) => {
   }
 
   return (
-    <div ref={(dom) => { layer(dom); if (dom) editorConnectors.drop(dom, id); }}>
-        <div
-          ref={(dom) => { drag(dom); layerHeader(dom); }}
-          className={`builder-layer-node ${isMouseOver ? "hovered" : ""} ${selected ? "selected" : ""}`}
-          style={{
-            paddingLeft: `${depth * 14 + 10}px`,
-            overflow: "hidden",
-          }}
-          onMouseEnter={() => setIsMouseOver(true)}
-          onMouseLeave={() => setIsMouseOver(false)}
-        >
-          {isEditing ? (
-            <input
-              className="layer-name-input"
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              onBlur={() => {
-                const trimmed = editValue.trim();
-                editorActions.setCustom(id, (custom) => {
-                  if (trimmed && trimmed !== (custom.displayName || "")) {
-                    custom.displayName = trimmed;
-                  } else if (!trimmed) {
-                    delete custom.displayName;
-                  }
-                });
+    <div
+      ref={(dom) => {
+        layer(dom);
+        if (dom) editorConnectors.drop(dom, id);
+      }}
+    >
+      <div
+        ref={(dom) => {
+          drag(dom);
+          layerHeader(dom);
+        }}
+        className={`builder-layer-node ${isMouseOver ? "hovered" : ""} ${selected ? "selected" : ""}`}
+        style={{
+          paddingLeft: `${depth * 14 + 10}px`,
+          overflow: "hidden",
+        }}
+        onMouseEnter={() => setIsMouseOver(true)}
+        onMouseLeave={() => setIsMouseOver(false)}
+      >
+        {isEditing ? (
+          <input
+            className="layer-name-input"
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={() => {
+              const trimmed = editValue.trim();
+              editorActions.setCustom(id, (custom) => {
+                if (trimmed && trimmed !== (custom.displayName || "")) {
+                  custom.displayName = trimmed;
+                } else if (!trimmed) {
+                  delete custom.displayName;
+                }
+              });
+              setIsEditing(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.target.blur();
+              if (e.key === "Escape") {
                 setIsEditing(false);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") e.target.blur();
-                if (e.key === "Escape") { setIsEditing(false); }
-              }}
-              onClick={(e) => e.stopPropagation()}
-              onMouseDown={(e) => e.stopPropagation()}
-              autoFocus
-              style={{ flexGrow: 1, minWidth: 0, width: 0, fontSize: 13, padding: "0 2px", border: "1px solid #2680eb", outline: "none", background: "transparent", color: "inherit" }}
+              }
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            autoFocus
+            style={{
+              flexGrow: 1,
+              minWidth: 0,
+              width: 0,
+              fontSize: 13,
+              padding: "0 2px",
+              border: "1px solid #2680eb",
+              outline: "none",
+              background: "transparent",
+              color: "inherit",
+            }}
+          />
+        ) : (
+          <span
+            className="layer-name"
+            style={{
+              flexGrow: 1,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+            onDoubleClick={(e) => {
+              e.stopPropagation();
+              setEditValue(displayName);
+              setIsEditing(true);
+            }}
+          >
+            {displayName}
+          </span>
+        )}
+
+        {isMouseOver && !isEditing && parentId && childIndex >= 0 && (
+          <span
+            className="layer-move-buttons"
+            style={{
+              display: "inline-flex",
+              gap: 2,
+              marginLeft: 4,
+              flexShrink: 0,
+            }}
+          >
+            {childIndex > 0 && (
+              <span
+                title="Move up"
+                style={{ cursor: "pointer", padding: "0 2px" }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  editorActions.move(id, parentId, childIndex - 1);
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <FontAwesomeIcon icon={faArrowUp} fontSize={10} />
+              </span>
+            )}
+            {childIndex >= 0 && childIndex < siblingCount - 1 && (
+              <span
+                title="Move down"
+                style={{ cursor: "pointer", padding: "0 2px" }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  editorActions.move(id, parentId, childIndex + 2);
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <FontAwesomeIcon icon={faArrowDown} fontSize={10} />
+              </span>
+            )}
+            {canMoveOut && (
+              <span
+                title="Move out of container"
+                style={{ cursor: "pointer", padding: "0 2px" }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  try {
+                    const parentData = query.node(parentId).get();
+                    const grandparentId = parentData.data.parent;
+                    const grandparentData = query.node(grandparentId).get();
+                    const greatGrandparentId = grandparentData.data.parent;
+                    const greatGrandparentChildren = query
+                      .node(greatGrandparentId)
+                      .childNodes();
+                    const grandparentIndex =
+                      greatGrandparentChildren.indexOf(grandparentId);
+                    editorActions.move(
+                      id,
+                      greatGrandparentId,
+                      grandparentIndex >= 0
+                        ? grandparentIndex + 1
+                        : greatGrandparentChildren.length
+                    );
+                  } catch (err) {
+                    console.warn("Move out failed:", err);
+                  }
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <FontAwesomeIcon icon={faLevelUpAlt} fontSize={10} />
+              </span>
+            )}
+          </span>
+        )}
+
+        {hasNodes && (
+          <span
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleLayer();
+            }}
+          >
+            <FontAwesomeIcon
+              icon={expanded ? faChevronUp : faChevronDown}
+              fontSize={14}
+              className="float-end fa-lg"
             />
-          ) : (
-            <span
-              className="layer-name"
-              style={{ flexGrow: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-              onDoubleClick={(e) => {
-                e.stopPropagation();
-                setEditValue(displayName);
-                setIsEditing(true);
-              }}
-            >
-              {displayName}
-            </span>
-          )}
-
-          {isMouseOver && !isEditing && parentId && childIndex >= 0 && (
-            <span className="layer-move-buttons" style={{ display: "inline-flex", gap: 2, marginLeft: 4, flexShrink: 0 }}>
-              {childIndex > 0 && (
-                <span
-                  title="Move up"
-                  style={{ cursor: "pointer", padding: "0 2px" }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    editorActions.move(id, parentId, childIndex - 1);
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <FontAwesomeIcon icon={faArrowUp} fontSize={10} />
-                </span>
-              )}
-              {childIndex >= 0 && childIndex < siblingCount - 1 && (
-                <span
-                  title="Move down"
-                  style={{ cursor: "pointer", padding: "0 2px" }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    editorActions.move(id, parentId, childIndex + 2);
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <FontAwesomeIcon icon={faArrowDown} fontSize={10} />
-                </span>
-              )}
-              {canMoveOut && (
-                <span
-                  title="Move out of container"
-                  style={{ cursor: "pointer", padding: "0 2px" }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    try {
-                      const parentData = query.node(parentId).get();
-                      const grandparentId = parentData.data.parent;
-                      const grandparentData = query.node(grandparentId).get();
-                      const greatGrandparentId = grandparentData.data.parent;
-                      const greatGrandparentChildren = query.node(greatGrandparentId).childNodes();
-                      const grandparentIndex = greatGrandparentChildren.indexOf(grandparentId);
-                      editorActions.move(id, greatGrandparentId, grandparentIndex >= 0 ? grandparentIndex + 1 : greatGrandparentChildren.length);
-                    } catch (err) {
-                      console.warn("Move out failed:", err);
-                    }
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                >
-                  <FontAwesomeIcon icon={faLevelUpAlt} fontSize={10} />
-                </span>
-              )}
-            </span>
-          )}
-
-          {hasNodes && (
-             <span
-               onClick={(e) => {
-                 e.stopPropagation();
-                 toggleLayer();
-               }}
-             >
-               <FontAwesomeIcon icon={expanded ? faChevronUp : faChevronDown} fontSize={14} className="float-end fa-lg" />
-             </span>
-          )}
-        </div>
+          </span>
+        )}
+      </div>
       {children}
     </div>
   );
@@ -890,7 +1082,7 @@ const HistoryPanel = () => {
       >
         <FontAwesomeIcon icon={faRedo} />
       </button>
-       <button
+      <button
         className="btn btn-sm btn-secondary undo-builder"
         title={t("Undo")}
         onClick={() => actions.history.undo()}
@@ -954,7 +1146,6 @@ const NextButton = ({ layout }) => {
  * @namespace
  */
 
-
 const Builder = ({ options, layout, mode }) => {
   const { t } = useTranslation();
   const [showLayers, setShowLayers] = useState(true);
@@ -973,12 +1164,12 @@ const Builder = ({ options, layout, mode }) => {
 
   const ref = useRef(null);
 
-   useEffect(() => {
-     if (!ref.current) return;
-     setBuilderHeight(ref.current.clientHeight);
-     const rect = ref.current.getBoundingClientRect();
-     setBuilderTop(rect.top);
-   });
+  useEffect(() => {
+    if (!ref.current) return;
+    setBuilderHeight(ref.current.clientHeight);
+    const rect = ref.current.getBoundingClientRect();
+    setBuilderTop(rect.top);
+  });
 
   const canvasHeight =
     Math.max(windowHeight - builderTop, builderHeight, 600) - 10;
@@ -991,10 +1182,12 @@ const Builder = ({ options, layout, mode }) => {
           thickness: 2,
           className: "builder-drop-indicator",
         }}
-        handlers={(store) => new DefaultEventHandlers({
-          store,
-          isMultiSelectEnabled: (e) => e?.shiftKey || false
-        })}
+        handlers={(store) =>
+          new DefaultEventHandlers({
+            store,
+            isMultiSelectEnabled: (e) => e?.shiftKey || false,
+          })
+        }
         resolver={{
           Text,
           Empty,
@@ -1026,7 +1219,13 @@ const Builder = ({ options, layout, mode }) => {
       >
         <Provider value={options}>
           <PreviewCtx.Provider
-            value={{ previews, setPreviews, uploadedFiles, setUploadedFiles, previewDevice }}
+            value={{
+              previews,
+              setPreviews,
+              uploadedFiles,
+              setUploadedFiles,
+              previewDevice,
+            }}
           >
             <RelationsCtx.Provider
               value={{
@@ -1055,7 +1254,10 @@ const Builder = ({ options, layout, mode }) => {
                         savingState={savingState}
                       />
                       <Accordion>
-                        <div className="card mt-1" accordiontitle={t("Components")}>
+                        <div
+                          className="card mt-1"
+                          accordiontitle={t("Components")}
+                        >
                           {{
                             show: <ToolboxShow expanded={isLeftEnlarged} />,
                             list: <ToolboxList expanded={isLeftEnlarged} />,
@@ -1090,9 +1292,9 @@ const Builder = ({ options, layout, mode }) => {
                       </div>
                       {showLayers && (
                         <div className="card-body p-0 builder-layers">
-                          <Layers 
+                          <Layers
                             expandRootOnLoad={true}
-                            renderLayer={CustomLayerComponent} 
+                            renderLayer={CustomLayerComponent}
                           />
                         </div>
                       )}
@@ -1108,12 +1310,16 @@ const Builder = ({ options, layout, mode }) => {
                     <div className="device-preview-scroll-area">
                       <div
                         className={`device-preview-canvas-wrapper ${
-                          previewDevice !== "desktop" && options.mode !== "list" ? "device-preview-constrained" : ""
+                          previewDevice !== "desktop" && options.mode !== "list"
+                            ? "device-preview-constrained"
+                            : ""
                         }`}
                         style={{
-                          maxWidth: options.mode !== "list" && DEVICE_WIDTHS[previewDevice]
-                            ? `${DEVICE_WIDTHS[previewDevice]}px`
-                            : "none",
+                          maxWidth:
+                            options.mode !== "list" &&
+                            DEVICE_WIDTHS[previewDevice]
+                              ? `${DEVICE_WIDTHS[previewDevice]}px`
+                              : "none",
                         }}
                       >
                         <Frame>
@@ -1134,12 +1340,16 @@ const Builder = ({ options, layout, mode }) => {
                           <Fragment>
                             <FontAwesomeIcon
                               icon={faSave}
-                              className={savingState.isSaving ? "d-inline" : "d-none"}
+                              className={
+                                savingState.isSaving ? "d-inline" : "d-none"
+                              }
                             />
                             <FontAwesomeIcon
                               icon={faExclamationTriangle}
                               color="#ff0033"
-                              className={savingState.error ? "d-inline" : "d-none"}
+                              className={
+                                savingState.error ? "d-inline" : "d-none"
+                              }
                             />
                             <HistoryPanel />
                             {options.mode !== "list" && (
@@ -1159,7 +1369,10 @@ const Builder = ({ options, layout, mode }) => {
                       >
                         {t("your work is not being saved")}
                       </div>
-                      <SettingsPanel isEnlarged={isEnlarged} setIsEnlarged={setIsEnlarged} />
+                      <SettingsPanel
+                        isEnlarged={isEnlarged}
+                        setIsEnlarged={setIsEnlarged}
+                      />
                     </div>
                   </div>
                 </div>
