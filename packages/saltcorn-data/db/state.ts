@@ -492,7 +492,7 @@ class State {
       else console.log(...msgs);
       const msg = msgs
         .map((m) =>
-          typeof m === "string" ? m : m.toString ? m.toString() : `${m}`
+          typeof m === "string" ? m : m?.toString ? m.toString() : `${m}`
         )
         .join(" ");
       this.emitLog(ten, min_level, msg);
