@@ -2,9 +2,7 @@
 
 ## 1.6.0 - In development
 
-- Typescript types are now stripped from run_js_code actions and code pages (if on Node.js 22.13.0 or later)
-
-- Elements can now be added to the top right (left in RTL languages) of cards, if a title is given.
+* Typescript types are now stripped from run_js_code actions and code pages (if on Node.js 22.13.0 or later)
 
 * If logged in as admin, a popover now appears on hovering over any embedded view with a link to configure
 
