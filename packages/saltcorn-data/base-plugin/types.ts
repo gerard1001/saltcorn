@@ -1813,6 +1813,7 @@ const int = {
       blockDisplay: true,
       run: (v: any, req: any, attrs: any = {}) => {
         return div(
+          { style: "white-space: nowrap" },
           Array.from(
             { length: +attrs.max - +attrs.min + 1 },
             (_, i) => i + +attrs.min
@@ -2322,16 +2323,21 @@ const date = {
       description: "Display relative to current time (e.g. 2 hours ago)",
       run: (d: any, req: any) => {
         if (!d) return "";
+
+        const wrapit = (s: string) =>
+          d?.toLocaleString
+            ? span({ title: d.toLocaleString(locale(req)) }, s)
+            : s;
         const loc = locale(req);
         if (d instanceof PlainDate || d?.constructor?.name === "PlainDate") {
           const today = new PlainDate();
           if (today.equals(d)) return req.__("today");
           let m = moment(d.toDate());
-          if (loc) return text(m.locale(loc).fromNow());
-          else return text(m.fromNow());
+          if (loc) return wrapit(text(m.locale(loc).fromNow()));
+          else return wrapit(text(m.fromNow()));
         }
-        if (loc) return text(moment(d).locale(loc).fromNow());
-        else return text(moment(d).fromNow());
+        if (loc) return wrapit(text(moment(d).locale(loc).fromNow()));
+        else return wrapit(text(moment(d).fromNow()));
       },
     },
     /**
