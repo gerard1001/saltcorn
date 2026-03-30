@@ -206,6 +206,7 @@ test.describe('E2E Test Suite', () => {
 
     // Create show team view 
     test('Create show team view', async () => {
+
         await functions.views();
         // click on create new view
         await page.click(pageobject.createnewview);
@@ -237,7 +238,10 @@ test.describe('E2E Test Suite', () => {
             await page.waitForSelector(pageobject.viewtolinkdropdown, { timeout: 5000 });
             await page.click(pageobject.viewtolinkdropdown);
             await page.keyboard.type('Show_Team');
-            await page.getByRole('option', { name: /Show_Team.*Teams/ }).click({ timeout: 10000 });
+            // await page.getByRole('option', { name: /Show_Team.*Teams/ }).click({ timeout: 10000 });
+            // await page.getByText(/Show_Team/i).nth(1).click({ timeout: 10000 });
+            const option = page.locator('[id^="react-select"][class*="option"]', { hasText: 'Show_Team' });
+            await option.first().click();
         });
         // Select Team relation to pass team id from person
         await page.click(pageobject.selectButton);
