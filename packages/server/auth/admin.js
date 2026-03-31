@@ -26,6 +26,7 @@ const {
   error_catcher,
   addOnDoneRedirect,
   is_relative_url,
+  isAdminOrHasConfigMinRole,
 } = require("../routes/utils");
 const { send_reset_email } = require("./resetpw");
 const { getState } = require("@saltcorn/data/db/state");
@@ -136,7 +137,9 @@ const userForm = async (req, user) => {
     type: "Key",
     reftable_name: "roles",
   });
-  const roles = (await User.get_roles()).filter((r) => r.role !== "public");
+  const roles = (await User.get_roles()).filter(
+    (r) => r.role !== "public" && r.id >= req.user.role_id
+  );
   roleField.options = roles.map((r) => ({ label: r.role, value: r.id }));
   const can_reset = getState().getConfig("smtp_host", "") !== "";
   const userFields = (await getUserFields(req)).filter(
@@ -201,11 +204,15 @@ const user_dropdown = (user, req, can_reset) =>
       },
       '<i class="fas fa-edit"></i>&nbsp;' + req.__("Edit")
     ),
-    post_dropdown_item(
-      `/useradmin/become-user/${user.id}`,
-      '<i class="fas fa-ghost"></i>&nbsp;' + req.__("Become user"),
-      req
-    ),
+    ...(req.user.role_id === 1
+      ? [
+          post_dropdown_item(
+            `/useradmin/become-user/${user.id}`,
+            '<i class="fas fa-ghost"></i>&nbsp;' + req.__("Become user"),
+            req
+          ),
+        ]
+      : []),
     post_dropdown_item(
       `/useradmin/set-random-password/${user.id}`,
       '<i class="fas fa-random"></i>&nbsp;' + req.__("Set random password"),
@@ -264,7 +271,7 @@ const user_dropdown = (user, req, can_reset) =>
  */
 router.get(
   "/",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
   error_catcher(async (req, res) => {
     const auth_methods = getState().auth_methods;
     const userBadges = (user) =>
@@ -282,7 +289,10 @@ router.get(
             span({ class: "badge bg-secondary me-1" }, v.label || k)
           )
       );
-    const users = await User.find({}, { orderBy: "id" });
+    const users = await User.find(
+      { role_id: { gt: req.user.role_id, equal: true } },
+      { orderBy: "id" }
+    );
     const roles = await User.get_roles();
     let roleMap = {};
     roles.forEach((r) => {
@@ -344,7 +354,8 @@ router.get(
  */
 router.get(
   "/new",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
+
   error_catcher(async (req, res) => {
     const form = await userForm(req);
     send_users_page({
@@ -459,6 +470,7 @@ const permissions_settings_form = async (req) =>
       "min_role_edit_files",
       "min_role_edit_search",
       "min_role_create_snapshots",
+      "min_role_edit_users",
       //hidden            "exttables_min_role_read",
     ],
     action: "/useradmin/permissions",
@@ -967,10 +979,16 @@ router.get(
  */
 router.get(
   "/:id",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
+
   error_catcher(async (req, res) => {
     const { id } = req.params;
     const user = await User.findOne({ id });
+    if (user.role_id < req.user.role_id) {
+      req.flash("error", req.__(`Not authorized`));
+      res.redirect("/useradmin");
+      return;
+    }
     const form = await userForm(req, user);
 
     send_users_page({
@@ -1117,7 +1135,8 @@ router.get(
  */
 router.post(
   "/save",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
+
   error_catcher(async (req, res) => {
     let form, sub2;
     if ((req.body || {}).id) {
@@ -1153,6 +1172,11 @@ router.post(
       _csrf,
       ...rest
     } = form.values;
+    if (role_id < req.user.role_id) {
+      req.flash("error", req.__(`Not authorized`));
+      res.redirect("/useradmin");
+      return;
+    }
     if (id) {
       try {
         const u = await User.findOne({ id });
@@ -1201,10 +1225,16 @@ router.post(
  */
 router.post(
   "/reset-password/:id",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
+
   error_catcher(async (req, res) => {
     const { id } = req.params;
     const u = await User.findOne({ id });
+    if (u.role_id < req.user.role_id) {
+      req.flash("error", req.__(`Not authorized`));
+      res.redirect("/useradmin");
+      return;
+    }
     await send_reset_email(u, req, { from_admin: true });
     req.flash("success", req.__(`Reset password link sent to %s`, u.email));
 
@@ -1220,11 +1250,17 @@ router.post(
  */
 router.post(
   "/send-verification/:id",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
+
   error_catcher(async (req, res) => {
     const { id } = req.params;
     const u = await User.findOne({ id });
     // todo add test case
+    if (u.role_id < req.user.role_id) {
+      req.flash("error", req.__(`Not authorized`));
+      res.redirect("/useradmin");
+      return;
+    }
     const result = await send_verification_email(u, req);
     if (result.error)
       req.flash(
@@ -1249,10 +1285,16 @@ router.post(
  */
 router.post(
   "/gen-api-token/:id",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
+
   error_catcher(async (req, res) => {
     const { id } = req.params;
     const u = await User.findOne({ id });
+    if (u.role_id < req.user.role_id) {
+      req.flash("error", req.__(`Not authorized`));
+      res.redirect("/useradmin");
+      return;
+    }
     await u.getNewAPIToken();
     req.flash("success", req.__(`New API token generated`));
 
@@ -1268,10 +1310,16 @@ router.post(
  */
 router.post(
   "/remove-api-token/:id",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
+
   error_catcher(async (req, res) => {
     const { id } = req.params;
     const u = await User.findOne({ id });
+    if (u.role_id < req.user.role_id) {
+      req.flash("error", req.__(`Not authorized`));
+      res.redirect("/useradmin");
+      return;
+    }
     await u.removeAPIToken();
     req.flash("success", req.__(`API token removed`));
 
@@ -1287,10 +1335,16 @@ router.post(
  */
 router.post(
   "/revoke-api-token/:uid/:tokenId",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
+
   error_catcher(async (req, res) => {
     const { uid, tokenId } = req.params;
     const u = await User.findOne({ id: uid });
+    if (u.role_id < req.user.role_id) {
+      req.flash("error", req.__(`Not authorized`));
+      res.redirect("/useradmin");
+      return;
+    }
     await u.revokeApiToken(+tokenId);
     req.flash("success", req.__(`API token revoked`));
     res.redirect(getOnDoneRedirect(req, `/useradmin/${u.id}`));
@@ -1302,10 +1356,16 @@ router.post(
  */
 router.post(
   "/revoke-original-api-token/:uid",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
+
   error_catcher(async (req, res) => {
     const { uid } = req.params;
     const u = await User.findOne({ id: uid });
+    if (u.role_id < req.user.role_id) {
+      req.flash("error", req.__(`Not authorized`));
+      res.redirect("/useradmin");
+      return;
+    }
     await u.revokeOriginalApiToken();
     req.flash("success", req.__(`API token revoked`));
     res.redirect(getOnDoneRedirect(req, `/useradmin/${u.id}`));
@@ -1320,10 +1380,16 @@ router.post(
  */
 router.post(
   "/set-random-password/:id",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
+
   error_catcher(async (req, res) => {
     const { id } = req.params;
     const u = await User.findOne({ id });
+    if (u.role_id < req.user.role_id) {
+      req.flash("error", req.__(`Not authorized`));
+      res.redirect("/useradmin");
+      return;
+    }
     const newpw = User.generate_password();
     await u.changePasswordTo(newpw);
     await u.destroy_sessions();
@@ -1372,10 +1438,15 @@ router.post(
  */
 router.post(
   "/disable/:id",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
   error_catcher(async (req, res) => {
     const { id } = req.params;
     const u = await User.findOne({ id });
+    if (u.role_id < req.user.role_id) {
+      req.flash("error", req.__(`Not authorized`));
+      res.redirect("/useradmin");
+      return;
+    }
     await u.update({ disabled: true });
     await u.destroy_sessions();
     req.flash("success", req.__(`Disabled user %s`, u.email));
@@ -1390,10 +1461,15 @@ router.post(
  */
 router.post(
   "/force-logout/:id",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
   error_catcher(async (req, res) => {
     const { id } = req.params;
     const u = await User.findOne({ id });
+    if (u.role_id < req.user.role_id) {
+      req.flash("error", req.__(`Not authorized`));
+      res.redirect("/useradmin");
+      return;
+    }
     await u.destroy_sessions();
     req.flash("success", req.__(`Logged out user %s`, u.email));
     res.redirect(getOnDoneRedirect(req));
@@ -1407,10 +1483,15 @@ router.post(
  */
 router.post(
   "/enable/:id",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
   error_catcher(async (req, res) => {
     const { id } = req.params;
     const u = await User.findOne({ id });
+    if (u.role_id < req.user.role_id) {
+      req.flash("error", req.__(`Not authorized`));
+      res.redirect("/useradmin");
+      return;
+    }
     await u.update({ disabled: false });
     req.flash("success", req.__(`Enabled user %s`, u.email));
     res.redirect(getOnDoneRedirect(req));
@@ -1424,10 +1505,15 @@ router.post(
  */
 router.post(
   "/delete/:id",
-  isAdmin,
+  isAdminOrHasConfigMinRole("min_role_edit_users"),
   error_catcher(async (req, res) => {
     const { id } = req.params;
     const u = await User.findOne({ id });
+    if (u.role_id < req.user.role_id) {
+      req.flash("error", req.__(`Not authorized`));
+      res.redirect("/useradmin");
+      return;
+    }
     await u.delete();
     req.flash("success", req.__(`User %s deleted`, u.email));
 
