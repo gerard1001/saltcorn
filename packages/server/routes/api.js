@@ -68,13 +68,13 @@ const limitFields = (fields) => (r) => {
 };
 
 /**
- * Check that user has right to read table data (only read in terms of CRUD)
+ * Check that user potentially has right to read table data (only read in terms of CRUD). In case of ownership fields/formula, further checks are needed.
  * @param {object} req httprequest
  * @param {object} user - user based on access token
  * @param {Table} table
  * @returns {boolean}
  */
-function accessAllowedRead(req, user, table, allow_ownership) {
+function potentiallyAccessAllowedRead(req, user, table, allow_ownership) {
   const role =
     req.user && req.user.id
       ? req.user.role_id
@@ -91,13 +91,13 @@ function accessAllowedRead(req, user, table, allow_ownership) {
 }
 
 /**
- * Check that user has right to write table data (create, update, delete in terms of  CRUD)
+ * Check that user potentially has right to write table data (create, update, delete in terms of  CRUD). In case of ownership fields/formula, further checks are needed.
  * @param {object} req httprequest
  * @param {object} user user based on access token
  * @param {Table} table
  * @returns {boolean}
  */
-function accessAllowedWrite(req, user, table) {
+function potentiallyAccessAllowedWrite(req, user, table) {
   const role =
     req.user && req.user.id
       ? req.user.role_id
@@ -326,7 +326,8 @@ router.get(
       "api-bearer",
       { session: false },
       async function (err, user, info) {
-        if (accessAllowedRead(req, user, table)) {
+        if (potentiallyAccessAllowedRead(req, user, table)) {
+          const myReq = { user: user || req.user, __: req.__ };
           const field = table.getFields().find((f) => f.name === fieldName);
           if (!field) {
             res.status(404).json({ error: req.__("Not found") });
@@ -337,9 +338,9 @@ router.get(
             field.is_fkey ||
             (field.type.name === "String" && field.attributes?.options)
           ) {
-            dvs = await field.distinct_values();
+            dvs = await field.distinct_values(myReq);
           } else {
-            dvs = await table.distinctValues(fieldName);
+            dvs = await table.distinctValues(fieldName, {}, user || req.user);
           }
           res.json({ success: dvs });
         } else {
@@ -442,7 +443,7 @@ router.get(
       ["api-bearer", "jwt"],
       { session: false },
       async function (err, user, info) {
-        if (accessAllowedRead(req, user, table, true)) {
+        if (potentiallyAccessAllowedRead(req, user, table, true)) {
           let rows;
           if (versioncount === "on") {
             const joinOpts = {
@@ -544,7 +545,7 @@ router.get("/:tableName/count", async (req, res, next) => {
     ["api-bearer", "jwt"],
     { session: false },
     async function (err, user, info) {
-      if (accessAllowedRead(req, user, table)) {
+      if (potentiallyAccessAllowedRead(req, user, table)) {
         const tbl_fields = table.getFields();
         readState(req_query, tbl_fields, req);
         const qstate = stateFieldsToWhere({
@@ -700,7 +701,7 @@ router.post(
       "api-bearer",
       { session: false },
       async function (err, user, info) {
-        if (accessAllowedWrite(req, user, table)) {
+        if (potentiallyAccessAllowedWrite(req, user, table)) {
           const { _versions, ...row } = req.body || {};
           const fields = table.getFields();
           readState(row, fields, req);
@@ -754,7 +755,7 @@ router.post(
       "api-bearer",
       { session: false },
       async function (err, user, info) {
-        if (accessAllowedWrite(req, user, table)) {
+        if (potentiallyAccessAllowedWrite(req, user, table)) {
           try {
             await db.withTransaction(async () => {
               if (id === "undefined") {
@@ -807,7 +808,7 @@ router.post(
       ["api-bearer", "jwt"],
       { session: false },
       async function (err, user, info) {
-        if (accessAllowedWrite(req, user, table)) {
+        if (potentiallyAccessAllowedWrite(req, user, table)) {
           const { _versions, ...row } = req.body || {};
           const fields = table.getFields();
           readState(row, fields, req);
@@ -862,7 +863,7 @@ router.delete(
       "api-bearer",
       { session: false },
       async function (err, user, info) {
-        if (accessAllowedWrite(req, user, table)) {
+        if (potentiallyAccessAllowedWrite(req, user, table)) {
           try {
             //await db.withTransaction(async () => {
             if (id === "undefined") {

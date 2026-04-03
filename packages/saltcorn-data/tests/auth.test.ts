@@ -190,7 +190,7 @@ const test_person_table = async (persons: Table) => {
   expect((await persons.getRow({ id: row1.id }))?.age).toBe(undefined);
 };
 
-describe("Table with row ownership field", () => {
+describe("Table with simple row ownership field", () => {
   it("should create and delete table", async () => {
     const persons = await Table.create("TableOwned");
     await Field.create({
@@ -207,6 +207,7 @@ describe("Table with row ownership field", () => {
       table: persons,
       name: "owner",
       type: "Key to users",
+      attributes: { summary_field: "email" },
     });
     await persons.update({ ownership_field_id: owner.id });
 
@@ -222,11 +223,15 @@ describe("Table with row ownership field", () => {
       { role_id: 100 }
     );
     expect((await persons.getRow({ lastname: "Tim" }))?.age).toBe(undefined);
-    await persons.insertRow(
+    const nauthins = await persons.insertRow(
       { age: 99, lastname: "Tim", owner: owner_user.id },
       non_owner_user
     );
-    expect((await persons.getRow({ lastname: "Tim" }))?.age).toBe(undefined);
+    expect(nauthins).toBe(undefined);
+
+    const timRow0 = await persons.getRow({ lastname: "Tim" });
+
+    expect(timRow0).toBe(null);
     const timid = await persons.insertRow(
       { age: 99, lastname: "Tim", owner: owner_user.id },
       owner_user
@@ -283,6 +288,41 @@ describe("Table with row ownership field", () => {
     );
     expect(+aggs_non_owned.npers).toBe(0);
 
+    const lastnameField = persons.getField("lastname");
+    assertIsSet(lastnameField);
+
+    const dvs1 = await lastnameField.distinct_values({ user: non_owner_user });
+    expect(dvs1.length).toBe(1);
+    expect(dvs1[0].value).toBe("");
+    const dvs2 = await lastnameField.distinct_values({ user: owner_user });
+
+    expect(dvs2.length).toBe(3);
+
+    const ownerField = persons.getField("owner");
+    assertIsSet(ownerField);
+    const dvs3 = await ownerField.distinct_values({ user: non_owner_user });
+
+    expect(dvs3.length).toBe(2);
+    expect(dvs3[0].value).toBe("");
+    expect(dvs3[1].value).toBe(non_owner_user.id);
+    const dvs4 = await ownerField.distinct_values({ user: owner_user });
+
+    expect(dvs4.length).toBe(2);
+    expect(dvs4[0].value).toBe("");
+    expect(dvs4[1].value).toBe(owner_user.id);
+
+    const dvs5 = await persons.distinctValues("lastname", {}, non_owner_user);
+    expect(dvs5.length).toBe(0);
+
+    expect(dvs5.length).toBe(0);
+    const dvs6 = await persons.distinctValues("lastname", {}, owner_user);
+
+    expect(dvs6.length).toBe(2);
+
+    //prevent setting owner to someone else
+    const upres = await persons.updateRow({ owner: non_owner_user }, alexid, owner_user);
+    expect(upres).toBe("Not authorized")
+    
     //not deleting as nonowner
     await persons.deleteRows({ id: timid }, non_owner_user);
     expect((await persons.getRow({ lastname: "Tim" }))?.age).toBe(99);
