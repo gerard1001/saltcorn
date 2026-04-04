@@ -211,10 +211,14 @@ const showErrorPage = async (error) => {
 const onResume = async () => {
   if (typeof saltcorn === "undefined") return;
   const mobileConfig = saltcorn.data.state.getState().mobileConfig;
-  if (mobileConfig?.allowOfflineMode && mobileConfig.jwt) {
+  if (mobileConfig?.jwt) {
     const netStatus = await Network.getStatus();
     mobileConfig.networkState = netStatus.connectionType;
-    if (mobileConfig.networkState === "none" && !mobileConfig.isOfflineMode) {
+    if (
+      mobileConfig.allowOfflineMode &&
+      mobileConfig.networkState === "none" &&
+      !mobileConfig.isOfflineMode
+    ) {
       try {
         await startOfflineMode();
         clearHistory();
@@ -222,14 +226,16 @@ const onResume = async () => {
       } catch (error) {
         await showErrorPage(error);
       }
-    } else if (
-      mobileConfig.networkState !== "none" &&
-      mobileConfig.syncOnAppResume
-    ) {
-      try {
-        await sync(false, false, []);
-      } catch (error) {
-        await showErrorPage(error);
+    } else if (mobileConfig.networkState !== "none") {
+      if (!mobileConfig.isOfflineMode && !isPublicJwt(mobileConfig.jwt)) {
+        await checkJWT(mobileConfig.jwt);
+      }
+      if (mobileConfig.allowOfflineMode && mobileConfig.syncOnAppResume) {
+        try {
+          await sync(false, false, []);
+        } catch (error) {
+          await showErrorPage(error);
+        }
       }
     }
   }

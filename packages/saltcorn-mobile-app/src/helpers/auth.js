@@ -26,22 +26,22 @@ async function loginRequest({ email, password, isSignup, isPublic }) {
         path: "/auth/login-with/jwt",
       }
     : isSignup
-      ? {
-          method: "POST",
-          path: "/auth/signup",
-          body: {
-            email,
-            password,
-          },
-        }
-      : {
-          method: "GET",
-          path: "/auth/login-with/jwt",
-          params: {
-            email,
-            password,
-          },
-        };
+    ? {
+        method: "POST",
+        path: "/auth/signup",
+        body: {
+          email,
+          password,
+        },
+      }
+    : {
+        method: "POST",
+        path: "/auth/login-with/jwt",
+        body: {
+          email,
+          password,
+        },
+      };
   const response = await apiCall(opts);
   return response.data;
 }
@@ -241,13 +241,34 @@ export async function setJwt(jwt) {
   await saltcorn.data.db.insert("jwt_table", { jwt: jwt });
 }
 
-export async function checkJWT(jwt) {
-  if (jwt && jwt !== "undefined") {
+async function renewJwt() {
+  try {
+    const response = await apiCall({
+      method: "POST",
+      path: "/auth/renew-jwt",
+    });
+    if (typeof response.data === "string") {
+      const config = saltcorn.data.state.getState().mobileConfig;
+      await setJwt(response.data);
+      config.jwt = response.data;
+    }
+  } catch (e) {
+    console.error("JWT renewal failed:", e.message);
+  }
+}
+
+export async function checkJWT(jwtStr) {
+  if (jwtStr && jwtStr !== "undefined") {
     const response = await apiCall({
       method: "GET",
       path: "/auth/authenticated",
       timeout: 10000,
     });
-    return response.data.authenticated;
+    if (!response.data.authenticated) return false;
+    const decoded = jwtDecode(jwtStr);
+    if (decoded.exp && decoded.exp - Date.now() / 1000 < 7 * 24 * 3600) {
+      await renewJwt();
+    }
+    return true;
   } else return false;
 }

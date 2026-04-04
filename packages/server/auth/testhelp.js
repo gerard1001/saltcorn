@@ -185,13 +185,9 @@ const getAdminJwt = async () => {
     "X-Saltcorn-Client": "mobile-app",
   };
   const res = await request(app)
-    .get(
-      `/auth/login-with/jwt?email=${encodeURIComponent(
-        "admin@foo.com"
-      )}&password=${encodeURIComponent("AhGGr6rhu45")}`
-    )
-
-    .set(headers);
+    .post("/auth/login-with/jwt")
+    .set(headers)
+    .send({ email: "admin@foo.com", password: "AhGGr6rhu45" });
   if (res.statusCode !== 200) console.log(res.text);
   return res.body;
 };
@@ -203,12 +199,9 @@ const getStaffJwt = async () => {
     "X-Saltcorn-Client": "mobile-app",
   };
   const res = await request(app)
-    .get(
-      `/auth/login-with/jwt?email${encodeURIComponent(
-        "staff@foo.com"
-      )}&password=${encodeURIComponent("ghrarhr54hg")}`
-    )
-    .set(headers);
+    .post("/auth/login-with/jwt")
+    .set(headers)
+    .send({ email: "staff@foo.com", password: "ghrarhr54hg" });
   if (res.statusCode !== 200) console.log(res.text);
   return res.body;
 };
@@ -220,12 +213,9 @@ const getUserJwt = async () => {
     "X-Saltcorn-Client": "mobile-app",
   };
   const res = await request(app)
-    .get(
-      `/auth/login-with/jwt?email=${encodeURIComponent(
-        "user@foo.com"
-      )}&password=${encodeURIComponent("GFeggwrwq45fjn")}`
-    )
-    .set(headers);
+    .post("/auth/login-with/jwt")
+    .set(headers)
+    .send({ email: "user@foo.com", password: "GFeggwrwq45fjn" });
   if (res.statusCode !== 200) console.log(res.text);
   return res.body;
 };
