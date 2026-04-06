@@ -1515,6 +1515,7 @@ ${value}`;
               }
             : {}),
         });
+        $(div).data("monaco-editor", editor);
         monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
           noLib: true,
           allowNonTsExtensions: true,
