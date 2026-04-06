@@ -75,6 +75,8 @@ const {
   h4,
   p,
   style,
+  h5,
+  textarea,
 } = require("@saltcorn/markup/tags");
 const Table = require("@saltcorn/data/models/table");
 const { getActionConfigFields } = require("@saltcorn/data/plugin-helper");
@@ -1352,6 +1354,146 @@ router.get(
       });
       // populate form values
       form.values = trigger.configuration;
+
+      const hasCopilot =
+        trigger.action === "run_js_code" &&
+        !!getState().functions.copilot_generate_javascript;
+
+      if (hasCopilot) {
+        form.additionalButtons = [
+          {
+            label: req.__("Edit with AI"),
+            onclick: "showJsCopilotModal(this)",
+            class: "btn btn-secondary",
+          },
+        ];
+      }
+
+      const copilotModal = hasCopilot
+        ? div(
+            {
+              class: "modal fade",
+              id: "jsCopilotModal",
+              tabindex: "-1",
+            },
+            div(
+              { class: "modal-dialog" },
+              div(
+                { class: "modal-content" },
+                div(
+                  { class: "modal-header" },
+                  h5({ class: "modal-title" }, req.__("Edit with AI")),
+                  button({
+                    type: "button",
+                    class: "btn-close",
+                    "data-bs-dismiss": "modal",
+                  })
+                ),
+                div(
+                  { class: "modal-body" },
+                  p(
+                    { class: "text-muted small" },
+                    req.__(
+                      "Describe what the code should do. The existing code will be used as context."
+                    )
+                  ),
+                  textarea({
+                    id: "jsCopilotPrompt",
+                    class: "form-control",
+                    rows: 3,
+                    placeholder: req.__("Enter your prompte..."),
+                  }),
+                  div({
+                    id: "jsCopilotError",
+                    class: "alert alert-danger mt-2 mb-0 d-none",
+                  })
+                ),
+                div(
+                  { class: "modal-footer" },
+                  button(
+                    { class: "btn btn-secondary", "data-bs-dismiss": "modal" },
+                    req.__("Cancel")
+                  ),
+                  button(
+                    {
+                      id: "jsCopilotGenBtn",
+                      class: "btn btn-primary",
+                      onclick: "runJsCopilot()",
+                      disabled: true,
+                    },
+                    req.__("Generate")
+                  )
+                )
+              )
+            )
+          ) +
+          script(`
+function showJsCopilotModal() {
+  var modal = new bootstrap.Modal(document.getElementById("jsCopilotModal"));
+  modal.show();
+}
+document.addEventListener("DOMContentLoaded", function () {
+  var ta = document.getElementById("jsCopilotPrompt");
+  var btn = document.getElementById("jsCopilotGenBtn");
+  if (ta && btn) {
+    ta.addEventListener("input", function () {
+      btn.disabled = !ta.value.trim();
+    });
+  }
+});
+function runJsCopilot() {
+  var ta = document.getElementById("jsCopilotPrompt");
+  var prompt = ta.value.trim();
+  if (!prompt) return;
+  var btn = document.getElementById("jsCopilotGenBtn");
+  var errDiv = document.getElementById("jsCopilotError");
+  btn.disabled = true;
+  btn.textContent = ${JSON.stringify(req.__("Generating..."))};
+  errDiv.classList.add("d-none");
+  fetch("/actions/gen-js-copilot/${id}", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Requested-With": "XMLHttpRequest",
+      "CSRF-Token": _sc_globalCsrf,
+    },
+    body: JSON.stringify({ description: prompt }),
+  })
+    .then(function (r) {
+      return r.json();
+    })
+    .then(function (data) {
+      btn.textContent = ${JSON.stringify(req.__("Generate"))};
+      if (data.error) {
+        btn.disabled = !ta.value.trim();
+        errDiv.textContent = data.error;
+        errDiv.classList.remove("d-none");
+        return;
+      }
+      ta.value = "";
+      btn.disabled = true;
+      var editorDiv = document.querySelector('textarea[name="code"]');
+      if (editorDiv) {
+        var monacoDiv = editorDiv.nextElementSibling;
+        if (monacoDiv) {
+          var ed = $(monacoDiv).data("monaco-editor");
+          if (ed) ed.setValue(data.code);
+        }
+      }
+      bootstrap.Modal.getInstance(
+        document.getElementById("jsCopilotModal")
+      ).hide();
+    })
+    .catch(function (err) {
+      btn.disabled = !ta.value.trim();
+      btn.textContent = ${JSON.stringify(req.__("Generate"))};
+      errDiv.textContent = err.message || "Request failed";
+      errDiv.classList.remove("d-none");
+    });
+}
+          `)
+        : "";
+
       // send events page
       send_events_page({
         res,
@@ -1367,7 +1509,7 @@ router.get(
             span({ class: "copy-to-clipboard" }, trigger.name)
           ),
           subtitle,
-          contents: renderForm(form, req.csrfToken()),
+          contents: copilotModal + renderForm(form, req.csrfToken()),
         },
       });
     }
@@ -1931,6 +2073,45 @@ router.post(
         req.flash("error", emsg);
         res.redirect(`/actions/configure/${step.trigger_id}`);
       }
+    }
+  })
+);
+
+router.post(
+  "/gen-js-copilot/:id",
+  isAdminOrHasConfigMinRole("min_role_edit_triggers"),
+  error_catcher(async (req, res) => {
+    const { id } = req.params;
+    const trigger = await Trigger.findOne({ id });
+    if (!trigger) {
+      req.flash("warning", req.__("Action not found"));
+      res.redirect(`/actions/`);
+      return;
+    }
+    const description = (req.body || {}).description;
+    // await Trigger.update(trigger.id, { description });
+    const table = trigger.table_id
+      ? Table.findOne({ id: trigger.table_id })
+      : null;
+    const existing_code = trigger.configuration?.code || "";
+    const generated =
+      await getState().functions.copilot_generate_javascript.run(
+        description,
+        existing_code,
+        table?.name || null
+      );
+    await Trigger.update(trigger.id, {
+      configuration: { ...trigger.configuration, code: generated },
+    });
+    await getState().refresh_triggers();
+    Trigger.emitEvent("AppChange", `Trigger ${trigger.name}`, req.user, {
+      entity_type: "Trigger",
+      entity_name: trigger.name,
+    });
+    if (req.xhr) {
+      res.json({ code: generated });
+    } else {
+      res.redirect(`/actions/configure/${trigger.id}`);
     }
   })
 );
