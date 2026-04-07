@@ -19,7 +19,7 @@ const BearerStrategy = require("passport-http-bearer");
 const User = require("@saltcorn/data/models/user");
 const File = require("@saltcorn/data/models/file");
 const flash = require("connect-flash");
-const { loadAllPlugins } = require("./load_plugins");
+const Plugin = require("@saltcorn/data/models/plugin");
 const homepage = require("./routes/homepage");
 const errors = require("./errors");
 const {
@@ -102,7 +102,7 @@ const getApp = async (opts = {}) => {
   // switch on sql logging
   if (sql_log) db.set_sql_logging(); // dont override cli flag
   // load all plugins
-  await loadAllPlugins();
+  await Plugin.loadAllPlugins();
   // get development mode status
   const development_mode = getState().getConfig("development_mode", false);
   // switch on sql logging - but it was initiated before???
@@ -214,7 +214,7 @@ const getApp = async (opts = {}) => {
   // init multitenant mode
   if (db.is_it_multi_tenant()) {
     const tenants = await getAllTenants();
-    await init_multi_tenant(loadAllPlugins, opts.disableMigrate, tenants);
+    await init_multi_tenant(Plugin.loadAllPlugins, opts.disableMigrate, tenants);
   }
   const pruneSessionInterval = +getState().getConfig(
     "prune_session_interval",

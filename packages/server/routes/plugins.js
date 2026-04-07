@@ -34,7 +34,6 @@ const {
   plugin_viewtemplates_info_card,
   showRepository,
 } = require("../markup/plugin-store");
-const load_plugins = require("../load_plugins");
 const {
   h5,
   a,
@@ -68,7 +67,6 @@ const {
   removeNonWordChars,
   getFetchProxyOptions,
 } = require("@saltcorn/data/utils");
-const { loadAllPlugins } = require("../load_plugins");
 const npmFetch = require("npm-registry-fetch");
 const PluginInstaller = require("@saltcorn/plugins-loader/plugin_installer");
 const {
@@ -663,7 +661,7 @@ router.get(
         const tags = pkgInfo["dist-tags"] || {};
         let selected = null;
         if (getState().plugins[plugin.name]) {
-          const mod = await load_plugins.requirePlugin(plugin);
+          const mod = await Plugin.requirePlugin(plugin);
           if (mod) selected = mod.version;
         }
         if (!selected) selected = versions[versions.length - 1];
@@ -929,7 +927,7 @@ router.post(
       const newCfg = wfres.cleanup ? wfres.context : wfres;
       plugin.configuration = newCfg;
       await plugin.upsert();
-      await load_plugins.loadPlugin(plugin);
+      await Plugin.loadPlugin(plugin);
       const instore = await Plugin.store_plugins_available();
       const store_plugin = instore.find((p) => p.name === plugin.name);
       if (store_plugin && store_plugin.has_auth) flash_restart(req);
@@ -967,7 +965,7 @@ router.post(
           ...step.renderForm.values,
         };
         await plugin.upsert();
-        await load_plugins.loadPlugin(plugin);
+        await Plugin.loadPlugin(plugin);
 
         getState().processSend({
           refresh_plugin_cfg: plugin.name,
@@ -1266,7 +1264,7 @@ router.get(
       res.redirect("/plugins");
       return;
     }
-    const mod = await load_plugins.requirePlugin(plugin_db);
+    const mod = await Plugin.requirePlugin(plugin_db);
     const store_items = await get_store_items(req);
     const store_item = store_items.find((item) => item.name === name);
     const update_permitted = plugin_db.source === "npm";
@@ -1274,16 +1272,16 @@ router.get(
     let latest =
       update_permitted &&
       (await get_latest_npm_version(plugin_db.location, 1000));
-    let engineInfos = await load_plugins.getEngineInfos(plugin_db); // with cache
+    let engineInfos = await Plugin.getEngineInfos(plugin_db); // with cache
     let forceFetch = true;
     if (latest && !engineInfos[latest]) {
-      engineInfos = await load_plugins.getEngineInfos(plugin_db, forceFetch);
+      engineInfos = await Plugin.getEngineInfos(plugin_db, forceFetch);
       forceFetch = false;
     }
     if (latest && !isVersionSupported(latest, engineInfos)) {
       latest = supportedVersion(
         latest,
-        await load_plugins.getEngineInfos(plugin_db, forceFetch)
+        await Plugin.getEngineInfos(plugin_db, forceFetch)
       );
     }
     const can_update = update_permitted && latest && mod.version !== latest;
@@ -1432,7 +1430,7 @@ router.get(
     const schema = db.getTenantSchema();
     if (schema === db.connectObj.default_schema) {
       await upgrade_all_tenants_plugins((p, f, forceFetch) =>
-        load_plugins.loadPlugin(p, f, forceFetch)
+        Plugin.loadPlugin(p, f, forceFetch)
       );
       req.flash(
         "success",
@@ -1444,11 +1442,11 @@ router.get(
       const installed_plugins = await Plugin.find({});
       for (const plugin of installed_plugins) {
         await plugin.upgrade_version((p, f, forceFetch) =>
-          load_plugins.loadPlugin(p, f, forceFetch)
+          Plugin.loadPlugin(p, f, forceFetch)
         );
       }
       req.flash("success", req.__(`Modules up-to-date`));
-      await restart_tenant(loadAllPlugins);
+      await restart_tenant(Plugin.loadAllPlugins);
       getState().processSend({
         restart_tenant: true,
         tenant: db.getTenantSchema(),
@@ -1495,10 +1493,10 @@ router.get(
     const { name } = req.params;
 
     const plugin = await Plugin.findOne({ name });
-    const versions = await load_plugins.getEngineInfos(plugin, true);
+    const versions = await Plugin.getEngineInfos(plugin, true);
 
     await plugin.upgrade_version(
-      (p, f) => load_plugins.loadPlugin(p, f),
+      (p, f) => Plugin.loadPlugin(p, f),
       supportedVersion("latest", versions, require("../package.json").version)
     );
     req.flash("success", req.__(`Module up-to-date`));
@@ -1531,7 +1529,7 @@ router.post(
       res.redirect(`/plugins`);
     } else {
       try {
-        const msgs = await load_plugins.loadAndSaveNewPlugin(
+        const msgs = await Plugin.loadAndSaveNewPlugin(
           plugin,
           schema === db.connectObj.default_schema || plugin.source === "github"
         );
@@ -1639,7 +1637,7 @@ router.post(
 
     let msgs = null;
     try {
-      msgs = await load_plugins.loadAndSaveNewPlugin(
+      msgs = await Plugin.loadAndSaveNewPlugin(
         plugin,
         forceReInstall,
         undefined,

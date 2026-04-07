@@ -6,7 +6,7 @@ const Table = require("@saltcorn/data/models/table");
 const fs = require("fs").promises;
 const { getState } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
-const { loadAllPlugins } = require("@saltcorn/server/load_plugins");
+const Plugin = require("@saltcorn/data/models/plugin");
 
 const pickFields = (table, pkName, row, keepId) => {
   const result = {};
@@ -328,10 +328,10 @@ class SyncUploadData extends Command {
   async run() {
     const { flags } = await this.parse(SyncUploadData);
     if (db.is_it_multi_tenant() && flags.tenantAppName) {
-      await init_multi_tenant(loadAllPlugins, true, [flags.tenantAppName]);
+      await init_multi_tenant(Plugin.loadAllPlugins, true, [flags.tenantAppName]);
     }
     const fn = async () => {
-      await loadAllPlugins();
+      await Plugin.loadAllPlugins();
       const helper = new SyncHelper(
         JSON.parse(
           await fs.readFile(path.join(flags.directory, "changes.json"))

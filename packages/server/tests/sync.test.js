@@ -9,7 +9,6 @@ const {
   toInclude,
   toSucceed,
 } = require("../auth/testhelp");
-const load_plugins = require("../load_plugins");
 const db = require("@saltcorn/data/db");
 const { sleep } = require("@saltcorn/data/tests/mocks");
 
@@ -38,7 +37,7 @@ const initSyncInfo = async (tbls) => {
 };
 
 const createAnswersTbl = async () => {
-  await load_plugins.loadAndSaveNewPlugin(
+  await Plugin.loadAndSaveNewPlugin(
     new Plugin({
       name: "json",
       source: "npm",

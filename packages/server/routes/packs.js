@@ -22,7 +22,6 @@ const Tag = require("@saltcorn/data/models/tag");
 const EventLog = require("@saltcorn/data/models/eventlog");
 const Model = require("@saltcorn/data/models/model");
 const ModelInstance = require("@saltcorn/data/models/model_instance");
-const load_plugins = require("../load_plugins");
 const { getState } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db/index");
 const { instanceOfPack } = require("@saltcorn/types/base_types");
@@ -464,7 +463,7 @@ router.post(
     } else {
       await db.withTransaction(async () => {
         await install_pack(pack, undefined, (p) =>
-          load_plugins.loadAndSaveNewPlugin(p)
+          Plugin.loadAndSaveNewPlugin(p)
         );
       });
       await getState().refresh();
@@ -502,7 +501,7 @@ router.post(
     }
     await db.withTransaction(async () => {
       await install_pack(pack.pack, name, (p) =>
-        load_plugins.loadAndSaveNewPlugin(p)
+        Plugin.loadAndSaveNewPlugin(p)
       );
     });
     await getState().refresh();

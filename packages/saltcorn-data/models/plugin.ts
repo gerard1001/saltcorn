@@ -18,8 +18,17 @@ import fs from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 import utils from "../utils";
-const { stringToJSON, isStale, getFetchProxyOptions, pluginsFolderRoot } =
+const { stringToJSON, isStale, getFetchProxyOptions, pluginsFolderRoot, isRoot } =
   utils;
+
+const npmFetch = require("npm-registry-fetch");
+let packagejson: any = null;
+try {
+  packagejson = require("../package.json");
+}
+catch (error: any) {
+  packagejson = require("../../package.json")
+}
 
 /**
  * Plugin Class
@@ -317,6 +326,418 @@ class Plugin implements AbstractPlugin {
    */
   static is_fixed_plugin(name: string): boolean {
     return ["@saltcorn/base-plugin", "@saltcorn/sbadmin2"].includes(name);
+  }
+
+  // ── plugin loading / installation ──────────────────────────────────────
+
+  /**
+   * Return cached engine constraint metadata for a plugin, fetching from npm if needed
+   * @param plugin - plugin whose npm location is queried
+   * @param forceFetch - bypass the cache and re-fetch from npm
+   * @returns map of `{ version: { engines?: { saltcorn: string } } }`
+   */
+  static async getEngineInfos(
+    plugin: Plugin,
+    forceFetch?: boolean
+  ): Promise<any> {
+    const { getRootState, getState } = require("../db/state");
+    const cached = getRootState().getConfig("engines_cache", {}) || {};
+    const airgap = getState().getConfig("airgap", false);
+    if (airgap || (cached[plugin.location] && !forceFetch)) {
+      return cached[plugin.location] || {};
+    } else {
+      getState().log(5, `Fetching versions for '${plugin.location}'`);
+      const pkgInfo = await npmFetch.json(
+        `https://registry.npmjs.org/${plugin.location}`,
+        getFetchProxyOptions()
+      );
+      const versions = pkgInfo.versions;
+      const newCached: Record<string, any> = {};
+      for (const [k, v] of Object.entries(versions) as [string, any][]) {
+        newCached[k] = v.engines?.saltcorn
+          ? { engines: { saltcorn: v.engines.saltcorn } }
+          : {};
+      }
+      cached[plugin.location] = newCached;
+      await getRootState().setConfig("engines_cache", { ...cached });
+      return newCached;
+    }
+  }
+
+  /**
+   * Check the saltcorn engine property and change the plugin version if necessary
+   * @param plugin - plugin to validate; `plugin.version` may be mutated
+   * @param forceFetch - bypass the engine-info cache when checking versions
+   */
+  static async ensurePluginSupport(
+    plugin: Plugin,
+    forceFetch?: boolean
+  ): Promise<void> {
+    const { getState } = require("../db/state");
+    const { supportedVersion, resolveLatest } = require(
+      "@saltcorn/plugins-loader/stable_versioning"
+    );
+    let versions = await Plugin.getEngineInfos(plugin, forceFetch);
+    if (
+      plugin.version &&
+      plugin.version !== "latest" &&
+      !versions[plugin.version] &&
+      !forceFetch
+    ) {
+      versions = await Plugin.getEngineInfos(plugin, true);
+    }
+    const supported = supportedVersion(
+      plugin.version || "latest",
+      versions,
+      packagejson.version
+    );
+    if (!supported) {
+      if (getState().getConfig("airgap", false))
+        getState().log(
+          5,
+          `Warning: No supported version for '${plugin.location}' in airgap mode"}`
+        );
+      else
+        throw new Error(
+          `Unable to find a supported version for '${plugin.location}'`
+        );
+    } else if (
+      supported !== plugin.version ||
+      (plugin.version === "latest" && supported !== resolveLatest(versions))
+    )
+      plugin.version = supported;
+  }
+
+  /**
+   * Load one plugin and register in state (without DB save)
+   * @param plugin - plugin to load
+   * @param force - remove the install directory and retry on registration failure
+   * @param forceFetch - bypass the engine-info cache when resolving versions
+   * @param reloadModule - force a fresh module load even if already cached
+   * @returns PluginInstaller result (`{ plugin_module, location, … }`)
+   */
+  static async loadPlugin(
+    plugin: Plugin,
+    force?: boolean,
+    forceFetch?: boolean,
+    reloadModule = false
+  ): Promise<any> {
+    const { getState, getRootState } = require("../db/state");
+    const PluginInstaller = require("@saltcorn/plugins-loader/plugin_installer");
+    if (plugin.source === "npm" && !Plugin.is_fixed_plugin(plugin.location)) {
+      try {
+        await Plugin.ensurePluginSupport(plugin, forceFetch);
+      } catch (e) {
+        console.log(
+          `Warning: Unable to find a supported version for '${plugin.location}' Continuing with the installed version`
+        );
+      }
+    }
+
+    const airgap = getState().getConfig("airgap", false);
+    if (airgap && !Plugin.is_fixed_plugin(plugin.location))
+      Plugin.ensureAirgapedVersion(
+        plugin,
+        getRootState().getConfig("pre_installed_module_infos", [])
+      );
+
+    const loader = new PluginInstaller(plugin, {
+      scVersion: packagejson.version,
+      envVars: { PUPPETEER_SKIP_DOWNLOAD: true },
+      reloadModule,
+      force,
+    });
+    const res = await loader.install();
+    const configuration =
+      typeof plugin.configuration === "string"
+        ? JSON.parse(plugin.configuration)
+        : plugin.configuration;
+    try {
+      getState().registerPlugin(
+        res.plugin_module.plugin_name || plugin.name,
+        res.plugin_module,
+        configuration,
+        res.location,
+        res.name
+      );
+    } catch (error: any) {
+      getState().log(
+        3,
+        `Error loading plugin ${plugin.name}: ${error.message || error}`
+      );
+      if (force) {
+        await loader.remove();
+        await loader.install();
+        getState().registerPlugin(
+          res.plugin_module.plugin_name || plugin.name,
+          res.plugin_module,
+          configuration,
+          res.location,
+          res.name
+        );
+      }
+    }
+    if (res.plugin_module.user_config_form)
+      await getState().refresh_userlayouts();
+    if (res.plugin_module.onLoad) {
+      try {
+        await res.plugin_module.onLoad(plugin.configuration);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+
+    if (isRoot() && res.plugin_module.authentication) {
+      const { eachTenant } = require("@saltcorn/admin-models/models/tenant");
+      await eachTenant(Plugin.reloadAuthFromRoot);
+    }
+    return res;
+  }
+
+  /**
+   * Install plugin without registering in state or saving to database
+   * @param plugin - plugin to install
+   * @param force - force reinstall even if already present
+   * @returns PluginInstaller result (`{ plugin_module, location, version, … }`)
+   */
+  static async requirePlugin(plugin: Plugin, force?: boolean): Promise<any> {
+    const { getState, getRootState } = require("../db/state");
+    const PluginInstaller = require("@saltcorn/plugins-loader/plugin_installer");
+    const airgap = getState().getConfig("airgap", false);
+    if (airgap && !Plugin.is_fixed_plugin(plugin.location))
+      Plugin.ensureAirgapedVersion(
+        plugin,
+        getRootState().getConfig("pre_installed_module_infos", [])
+      );
+
+    const loader = new PluginInstaller(plugin, {
+      scVersion: packagejson.version,
+      envVars: { PUPPETEER_SKIP_DOWNLOAD: true },
+      force: force,
+    });
+    return await loader.install();
+  }
+
+  /**
+   * Load all plugins from the database into state
+   * @param force - passed through to {@link loadPlugin} for each plugin
+   * @param reloadModule - force fresh module loads for each plugin
+   */
+  static async loadAllPlugins(
+    force?: boolean,
+    reloadModule = false
+  ): Promise<void> {
+    const { getState } = require("../db/state");
+    await getState().refresh(true);
+    const plugins = await db.select("_sc_plugins");
+    for (const plugin of plugins) {
+      try {
+        await Plugin.loadPlugin(plugin, force, undefined, reloadModule);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    await getState().refresh_userlayouts();
+    await getState().refresh(true, true);
+    if (!isRoot()) Plugin.reloadAuthFromRoot();
+  }
+
+  /**
+   * Load plugin and its dependencies and save into local installation
+   * @param plugin - plugin to install
+   * @param force - force reinstall; retries after removing the install dir on failure
+   * @param noSignalOrDB - skip database upsert and processSend signal (e.g. during restore)
+   * @param __ - i18n translation function for user-facing messages
+   * @param allowUnsafeOnTenantsWithoutConfigSetting - allow unsafe plugins on tenants without the global config flag
+   * @param overwriteDependencies - substitute local paths for dependencies; testing only
+   * @returns warning/info messages collected during install, or `undefined` if skipped
+   */
+  static async loadAndSaveNewPlugin(
+    plugin: Plugin,
+    force?: boolean,
+    noSignalOrDB?: boolean,
+    __: (str: string, ...args: any[]) => string = (str) => str,
+    allowUnsafeOnTenantsWithoutConfigSetting?: boolean,
+    overwriteDependencies?: Record<string, string>
+  ): Promise<string[] | undefined> {
+    const { getState, getRootState } = require("../db/state");
+    const PluginInstaller = require("@saltcorn/plugins-loader/plugin_installer");
+    const tenants_unsafe_plugins = getRootState().getConfig(
+      "tenants_unsafe_plugins",
+      false
+    );
+    if (!isRoot() && !tenants_unsafe_plugins) {
+      if (plugin.source !== "npm") {
+        console.error("\nWARNING: Skipping unsafe plugin ", plugin.name);
+        return;
+      }
+      await db.runWithTenant(
+        db.connectObj.default_schema,
+        async () => await Plugin.store_plugins_available()
+      );
+
+      const instore = getRootState().getConfig("available_plugins", []);
+      const safes = instore
+        .filter((p: any) => !p.unsafe)
+        .map((p: any) => p.location);
+      if (
+        !safes.includes(plugin.location) &&
+        !allowUnsafeOnTenantsWithoutConfigSetting
+      ) {
+        console.error("\nWARNING: Skipping unsafe plugin ", plugin.name);
+        return;
+      }
+    }
+    const airgap = getState().getConfig("airgap", false);
+    if (plugin.source === "npm" && !airgap)
+      await Plugin.ensurePluginSupport(plugin);
+    if (airgap && !Plugin.is_fixed_plugin(plugin.location))
+      Plugin.ensureAirgapedVersion(
+        plugin,
+        getRootState().getConfig("pre_installed_module_infos", [])
+      );
+
+    const loadMsgs: string[] = [];
+    const loader = new PluginInstaller(plugin, {
+      scVersion: packagejson.version,
+      envVars: { PUPPETEER_SKIP_DOWNLOAD: true },
+      force: force,
+    });
+    const { version, plugin_module, location, loadedWithReload, msgs } =
+      await loader.install();
+    if (msgs) loadMsgs.push(...msgs);
+
+    for (const loc of plugin_module.dependencies || []) {
+      const overwrite = (overwriteDependencies || {})[loc];
+      if (overwrite) {
+        const pckJson = require(path.join(overwrite, "package.json"));
+        await Plugin.loadAndSaveNewPlugin(
+          new Plugin({
+            name: pckJson.name,
+            location: overwrite,
+            source: "local",
+          }),
+          true,
+          noSignalOrDB
+        );
+      } else {
+        const existing = await Plugin.findOne({ location: loc });
+        if (!existing && loc !== plugin.location) {
+          await Plugin.loadAndSaveNewPlugin(
+            new Plugin({
+              name: loc.replace("@saltcorn/", ""),
+              location: loc,
+              source: "npm",
+            }),
+            force,
+            noSignalOrDB
+          );
+        }
+      }
+    }
+
+    let registeredWithReload = false;
+    try {
+      getState().registerPlugin(
+        plugin_module.plugin_name || plugin.name,
+        plugin_module,
+        plugin.configuration,
+        location,
+        plugin.name
+      );
+    } catch (error) {
+      if (force) {
+        getState().log(
+          2,
+          `Error registering plugin ${plugin.name}. Removing and trying again.`
+        );
+        await loader.remove();
+        await loader.install();
+        getState().registerPlugin(
+          plugin_module.plugin_name || plugin.name,
+          plugin_module,
+          plugin.configuration,
+          location,
+          plugin.name
+        );
+        registeredWithReload = true;
+      } else {
+        throw error;
+      }
+    }
+    if (loadedWithReload || registeredWithReload) {
+      loadMsgs.push(
+        __(
+          "The plugin was corrupted and had to be repaired. We recommend restarting your server.",
+          plugin.name
+        )
+      );
+    }
+    if (plugin_module.onLoad) {
+      try {
+        await plugin_module.onLoad(plugin.configuration);
+      } catch (error) {
+        console.error(error);
+      }
+    }
+    if (version) plugin.version = version;
+
+    if (isRoot() && plugin_module.authentication) {
+      const { eachTenant } = require("@saltcorn/admin-models/models/tenant");
+      await eachTenant(Plugin.reloadAuthFromRoot);
+    }
+
+    if (!noSignalOrDB) {
+      await plugin.upsert();
+      getState().processSend({
+        installPlugin: plugin,
+        tenant: db.getTenantSchema(),
+        force: false,
+      });
+    }
+    return loadMsgs;
+  }
+
+  /**
+   * When the database has another plugin version, don't override the pre-installed module
+   * @param plugin - plugin whose version may be mutated
+   * @param airgapedStore - content of `pre_installed_module_infos` config
+   */
+  private static ensureAirgapedVersion(
+    plugin: Plugin,
+    airgapedStore: any[]
+  ): void {
+    const { getState } = require("../db/state");
+    const airgapedPlugin = airgapedStore.find(
+      (p: any) => p.location === plugin.location
+    );
+    if (!airgapedPlugin) {
+      throw new Error(
+        `Plugin ${plugin.name} from location ${plugin.location} not found in local airgapped store`
+      );
+    }
+    if (airgapedPlugin.version !== plugin.version) {
+      getState().log(
+        5,
+        `Overriding plugin ${plugin.name} version ${plugin.version} with airgapped store version ${airgapedPlugin.version}`
+      );
+      plugin.version = airgapedPlugin.version;
+    }
+  }
+
+  /**
+   * Copy auth methods with `shareWithTenants: true` from root state into current tenant state
+   */
+  private static reloadAuthFromRoot(): void {
+    const { getState, getRootState } = require("../db/state");
+    if (isRoot()) return;
+    const rootState = getRootState();
+    const tenantState = getState();
+    if (!rootState || !tenantState || rootState === tenantState) return;
+    tenantState.auth_methods = {};
+    for (const [k, v] of Object.entries(rootState.auth_methods)) {
+      if ((v as any).shareWithTenants) tenantState.auth_methods[k] = v;
+    }
   }
 }
 

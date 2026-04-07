@@ -25,8 +25,6 @@ class InstallPluginCommand extends Command {
       fetch_pack_by_name,
       install_pack,
     } = require("@saltcorn/admin-models/models/pack");
-    const load_plugins = require("@saltcorn/server/load_plugins");
-
     if (!flags.name && !flags.directory && !flags.npm) {
       console.error(
         "You must provide either a plugin name (-n), a directory (-d), or an npm package (-p)"
@@ -47,7 +45,7 @@ class InstallPluginCommand extends Command {
         }
         delete plugin.id;
 
-        await load_plugins.loadAndSaveNewPlugin(
+        await Plugin.loadAndSaveNewPlugin(
           plugin,
           undefined,
           undefined,
@@ -60,7 +58,7 @@ class InstallPluginCommand extends Command {
           source: "npm",
           location: flags.npm,
         });
-        await load_plugins.loadAndSaveNewPlugin(
+        await Plugin.loadAndSaveNewPlugin(
           plugin,
           undefined,
           undefined,
@@ -80,7 +78,7 @@ class InstallPluginCommand extends Command {
             source: "local",
             location: path.resolve(flags.directory),
           });
-          await load_plugins.loadAndSaveNewPlugin(plugin, true);
+          await Plugin.loadAndSaveNewPlugin(plugin, true);
         } catch (e) {
           console.error(e);
           this.exit(1);

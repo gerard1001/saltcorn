@@ -18,12 +18,12 @@ class FixturesCommand extends Command {
     const reset = require("@saltcorn/data/db/reset_schema");
     const { flags } = await this.parse(FixturesCommand);
     if (flags.tenant) {
-      const { loadAllPlugins } = require("@saltcorn/server/load_plugins");
+      const Plugin = require("@saltcorn/data/models/plugin");
       const { init_multi_tenant } = require("@saltcorn/data/db/state");
       const { getAllTenants } = require("@saltcorn/admin-models/models/tenant");
-      await loadAllPlugins();
+      await Plugin.loadAllPlugins();
       const tenants = await getAllTenants();
-      await init_multi_tenant(loadAllPlugins, undefined, tenants);
+      await init_multi_tenant(Plugin.loadAllPlugins, undefined, tenants);
     }
     await maybe_as_tenant(flags.tenant, async () => {
       if (flags.reset) {

@@ -44,17 +44,17 @@ const maybe_as_tenant_in_transaction = async (ten, f0) => {
  * @returns {Promise<void>}
  */
 const init_some_tenants = async (tenant) => {
-  const { loadAllPlugins } = require("@saltcorn/server/load_plugins");
+  const Plugin = require("@saltcorn/data/models/plugin");
   const { init_multi_tenant } = require("@saltcorn/data/db/state");
-  await loadAllPlugins();
+  await Plugin.loadAllPlugins();
   if (tenant === "*") {
     const { getAllTenants } = require("@saltcorn/admin-models/models/tenant");
     const tenants = await getAllTenants();
-    await init_multi_tenant(loadAllPlugins, undefined, tenants);
+    await init_multi_tenant(Plugin.loadAllPlugins, undefined, tenants);
   } else if (tenant)
-    await init_multi_tenant(loadAllPlugins, undefined, [tenant]);
-  else await init_multi_tenant(loadAllPlugins, undefined, []);
-  //await init_multi_tenant(loadAllPlugins, undefined, tenants);
+    await init_multi_tenant(Plugin.loadAllPlugins, undefined, [tenant]);
+  else await init_multi_tenant(Plugin.loadAllPlugins, undefined, []);
+  //await init_multi_tenant(Plugin.loadAllPlugins, undefined, tenants);
 };
 
 /**
@@ -129,10 +129,10 @@ const prep_test_db = async (backupFile) => {
   const fs = require("fs");
   if (!fs.existsSync(backupFile))
     throw new Error(`backup file '${backupFile}' does not exist`);
-  const load_plugins = require("@saltcorn/server/load_plugins");
+  const Plugin = require("@saltcorn/data/models/plugin");
   await require("@saltcorn/data/db/reset_schema")();
-  await load_plugins.loadAllPlugins();
-  const savePlugin = (p) => load_plugins.loadAndSaveNewPlugin(p);
+  await Plugin.loadAllPlugins();
+  const savePlugin = (p) => Plugin.loadAndSaveNewPlugin(p);
   const { restore } = require("@saltcorn/admin-models/models/backup");
   const err = await restore(backupFile, savePlugin);
   if (err) console.log(`warning: ${err}`);

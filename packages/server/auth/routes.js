@@ -64,7 +64,7 @@ const { InvalidConfiguration, getSessionId } = require("@saltcorn/data/utils");
 const Trigger = require("@saltcorn/data/models/trigger");
 const { restore_backup } = require("../markup/admin.js");
 const { restore } = require("@saltcorn/admin-models/models/backup");
-const load_plugins = require("../load_plugins");
+const Plugin = require("@saltcorn/data/models/plugin");
 const fs = require("fs");
 const base32 = require("thirty-two");
 const qrcode = require("qrcode");
@@ -698,7 +698,7 @@ router.post(
     try {
       const err = await restore(
         newPath,
-        (p) => load_plugins.loadAndSaveNewPlugin(p),
+        (p) => Plugin.loadAndSaveNewPlugin(p),
         true
       );
 
@@ -813,7 +813,7 @@ router.post(
     try {
       const err = await restore(
         backupPath,
-        (p) => load_plugins.loadAndSaveNewPlugin(p),
+        (p) => Plugin.loadAndSaveNewPlugin(p),
         true,
         password
       );

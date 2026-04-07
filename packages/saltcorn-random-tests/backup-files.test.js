@@ -5,7 +5,7 @@ const fs = require("fs");
 const {
   runConfigurationCheck,
 } = require("@saltcorn/admin-models/models/config-check");
-const load_plugins = require("@saltcorn/server/load_plugins");
+const Plugin = require("@saltcorn/data/models/plugin");
 const { restore } = require("@saltcorn/admin-models/models/backup");
 const { getState } = require("@saltcorn/data/db/state");
 const { mockReqRes } = require("@saltcorn/data/tests/mocks");
@@ -30,7 +30,7 @@ describe("backup files", () => {
         p.location = p.name;
         p.name = p.name.split("/")[1];
       }
-      return load_plugins.loadAndSaveNewPlugin(p);
+      return Plugin.loadAndSaveNewPlugin(p);
     };
 
     for (const file of backupFiles) {

@@ -31,7 +31,6 @@ const {
   add_tenant,
 } = require("@saltcorn/data/db/state");
 const db = require("@saltcorn/data/db");
-const { loadAllPlugins } = require("../load_plugins");
 const { text } = require("@saltcorn/markup/tags");
 
 /**
@@ -346,7 +345,7 @@ router.post(
           if (new_tenant) {
             add_tenant(new_tenant);
 
-            await db.runWithTenant(new_tenant, loadAllPlugins);
+            await db.runWithTenant(new_tenant, Plugin.loadAllPlugins);
 
             process_send({ createTenant: new_tenant });
           }

@@ -1,6 +1,6 @@
 const { mergeWithCustomize, merge } = require("webpack-merge");
 const { join } = require("path");
-const { requirePlugin } = require("@saltcorn/server/load_plugins");
+const Plugin = require("@saltcorn/data/models/plugin");
 
 const dataCfg = require(join(
   require.resolve("@saltcorn/data"),
@@ -33,7 +33,7 @@ const buildPluginEntries = async (plugins) => {
   let result = [];
   const nameToModule = new Map();
   for (const plugin of plugins) {
-    const requireResult = await requirePlugin(plugin, true);
+    const requireResult = await Plugin.requirePlugin(plugin, true);
     const packageName = require(`${requireResult.location}/package.json`).name;
     nameToModule.set(plugin.name, { packageName, requireResult });
   }

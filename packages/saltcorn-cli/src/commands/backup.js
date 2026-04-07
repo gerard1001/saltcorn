@@ -50,7 +50,7 @@ class BackupCommand extends Command {
       const db = require("@saltcorn/data/db");
 
       const { create_backup } = require("@saltcorn/admin-models/models/backup");
-      const { loadAllPlugins } = require("@saltcorn/server/load_plugins");
+      const Plugin = require("@saltcorn/data/models/plugin");
       const { eachTenant } = require("@saltcorn/admin-models/models/tenant");
       const { init_multi_tenant } = require("@saltcorn/data/db/state");
       let nten = 0,
@@ -60,7 +60,7 @@ class BackupCommand extends Command {
         try {
           nten += 1;
           const domain = db.getTenantSchema();
-          await init_multi_tenant(loadAllPlugins, undefined, [domain]);
+          await init_multi_tenant(Plugin.loadAllPlugins, undefined, [domain]);
           console.log("Backup tenant", domain);
           const fnm = await create_backup(flags.output);
           console.log(fnm);
@@ -75,8 +75,8 @@ class BackupCommand extends Command {
     } else if (flags.zip) {
       // zip the saltcorn backup
       const { create_backup } = require("@saltcorn/admin-models/models/backup");
-      const { loadAllPlugins } = require("@saltcorn/server/load_plugins");
-      await loadAllPlugins();
+      const Plugin = require("@saltcorn/data/models/plugin");
+      await Plugin.loadAllPlugins();
 
       if (flags.verbose)
         console.log(

@@ -19,16 +19,15 @@ class SetupBenchmarkCommand extends Command {
       fetch_pack_by_name,
       install_pack,
     } = require("@saltcorn/admin-models/models/pack");
-    const load_plugins = require("@saltcorn/server/load_plugins");
-    const { loadAllPlugins } = require("@saltcorn/server/load_plugins");
+    const Plugin = require("@saltcorn/data/models/plugin");
     const { init_multi_tenant } = require("@saltcorn/data/db/state");
     const { getAllTenants } = require("@saltcorn/admin-models/models/tenant");
-    await loadAllPlugins();
+    await Plugin.loadAllPlugins();
     const tenants = await getAllTenants();
-    await init_multi_tenant(loadAllPlugins, undefined, tenants);
+    await init_multi_tenant(Plugin.loadAllPlugins, undefined, tenants);
     const pack = await fetch_pack_by_name("Forum");
     await install_pack(pack.pack, flags.name, (p) =>
-      load_plugins.loadAndSaveNewPlugin(p)
+      Plugin.loadAndSaveNewPlugin(p)
     );
   }
 

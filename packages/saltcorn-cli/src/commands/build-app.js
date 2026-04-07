@@ -4,7 +4,6 @@ const Plugin = require("@saltcorn/data/models/plugin");
 const { MobileBuilder } = require("@saltcorn/mobile-builder/mobile-builder");
 const { decodeProvisioningProfile } = require("@saltcorn/data/utils");
 const { init_multi_tenant, getState } = require("@saltcorn/data/db/state");
-const { loadAllPlugins } = require("@saltcorn/server/load_plugins");
 const User = require("@saltcorn/data/models/user");
 
 /**
@@ -110,7 +109,7 @@ class BuildAppCommand extends Command {
     );
     const db = require("@saltcorn/data/db");
     if (db.is_it_multi_tenant() && flags.tenantAppName) {
-      await init_multi_tenant(loadAllPlugins, true, [flags.tenantAppName]);
+      await init_multi_tenant(Plugin.loadAllPlugins, true, [flags.tenantAppName]);
     }
     const doBuild = async () => {
       const user = flags.userEmail

@@ -9,7 +9,6 @@ const {
 } = require("@saltcorn/admin-models/models/tenant");
 const { resetToFixtures } = require("../auth/testhelp");
 const db = require("@saltcorn/data/db");
-const load_plugins = require("../load_plugins");
 
 beforeAll(async () => {
   if (!db.isSQLite) await db.query(`drop schema if exists test101 CASCADE `);
@@ -37,7 +36,7 @@ describe("Tenant cannot install unsafe plugins", () => {
   if (!db.isSQLite) {
     it("creates a new tenant", async () => {
       db.enable_multi_tenant();
-      const loadAndSaveNewPlugin = load_plugins.loadAndSaveNewPlugin;
+      const loadAndSaveNewPlugin = Plugin.loadAndSaveNewPlugin;
 
       await getState().setConfig("base_url", "http://example.com/");
 
@@ -56,7 +55,7 @@ describe("Tenant cannot install unsafe plugins", () => {
     });
     it("can install safe plugins on tenant", async () => {
       await db.runWithTenant("test101", async () => {
-        const loadAndSaveNewPlugin = load_plugins.loadAndSaveNewPlugin;
+        const loadAndSaveNewPlugin = Plugin.loadAndSaveNewPlugin;
 
         await install_pack(
           plugin_pack({
@@ -73,7 +72,7 @@ describe("Tenant cannot install unsafe plugins", () => {
     });
     it("cannot install unsafe plugins on tenant", async () => {
       await db.runWithTenant("test101", async () => {
-        const loadAndSaveNewPlugin = load_plugins.loadAndSaveNewPlugin;
+        const loadAndSaveNewPlugin = Plugin.loadAndSaveNewPlugin;
 
         await install_pack(
           plugin_pack({
@@ -91,7 +90,7 @@ describe("Tenant cannot install unsafe plugins", () => {
     it("can install unsafe plugins on tenant when permitted", async () => {
       await getState().setConfig("tenants_unsafe_plugins", true);
       await db.runWithTenant("test101", async () => {
-        const loadAndSaveNewPlugin = load_plugins.loadAndSaveNewPlugin;
+        const loadAndSaveNewPlugin = Plugin.loadAndSaveNewPlugin;
 
         await install_pack(
           plugin_pack({
@@ -130,7 +129,7 @@ describe("Stable versioning install", () => {
     }
   });
   it("installs latest", async () => {
-    const loadAndSaveNewPlugin = load_plugins.loadAndSaveNewPlugin;
+    const loadAndSaveNewPlugin = Plugin.loadAndSaveNewPlugin;
     await loadAndSaveNewPlugin(
       new Plugin({
         name: "@christianhugoch/empty_sc_test_plugin_two",
@@ -147,7 +146,7 @@ describe("Stable versioning install", () => {
   });
 
   it("installs and downgrades latest", async () => {
-    const loadAndSaveNewPlugin = load_plugins.loadAndSaveNewPlugin;
+    const loadAndSaveNewPlugin = Plugin.loadAndSaveNewPlugin;
     await loadAndSaveNewPlugin(
       new Plugin({
         name: "@christianhugoch/empty_sc_test_plugin",
@@ -165,7 +164,7 @@ describe("Stable versioning install", () => {
   });
 
   it("installs and upgrades a fixed version", async () => {
-    const loadAndSaveNewPlugin = load_plugins.loadAndSaveNewPlugin;
+    const loadAndSaveNewPlugin = Plugin.loadAndSaveNewPlugin;
     await loadAndSaveNewPlugin(
       new Plugin({
         name: "@christianhugoch/empty_sc_test_plugin",
@@ -182,7 +181,7 @@ describe("Stable versioning install", () => {
   });
 
   it("installs and downgrades a fixed version", async () => {
-    const loadAndSaveNewPlugin = load_plugins.loadAndSaveNewPlugin;
+    const loadAndSaveNewPlugin = Plugin.loadAndSaveNewPlugin;
     await loadAndSaveNewPlugin(
       new Plugin({
         name: "@christianhugoch/empty_sc_test_plugin",
@@ -212,7 +211,7 @@ describe("Stable versioning upgrade", () => {
   });
 
   it("upgrades to latest", async () => {
-    const loadAndSaveNewPlugin = load_plugins.loadAndSaveNewPlugin;
+    const loadAndSaveNewPlugin = Plugin.loadAndSaveNewPlugin;
     await loadAndSaveNewPlugin(
       new Plugin({
         name: "@christianhugoch/empty_sc_test_plugin_two",
@@ -246,7 +245,7 @@ describe("Stable versioning upgrade", () => {
   });
 
   it("upgrades to latest with downgrade to supported", async () => {
-    const loadAndSaveNewPlugin = load_plugins.loadAndSaveNewPlugin;
+    const loadAndSaveNewPlugin = Plugin.loadAndSaveNewPlugin;
     await loadAndSaveNewPlugin(
       new Plugin({
         name: "@christianhugoch/empty_sc_test_plugin",
@@ -280,7 +279,7 @@ describe("Stable versioning upgrade", () => {
   });
 
   it("upgrades to fixed version", async () => {
-    const loadAndSaveNewPlugin = load_plugins.loadAndSaveNewPlugin;
+    const loadAndSaveNewPlugin = Plugin.loadAndSaveNewPlugin;
     await loadAndSaveNewPlugin(
       new Plugin({
         name: "@christianhugoch/empty_sc_test_plugin_two",
@@ -314,7 +313,7 @@ describe("Stable versioning upgrade", () => {
   });
 
   it("upgrades to fixed version with downgrade to supported", async () => {
-    const loadAndSaveNewPlugin = load_plugins.loadAndSaveNewPlugin;
+    const loadAndSaveNewPlugin = Plugin.loadAndSaveNewPlugin;
     await loadAndSaveNewPlugin(
       new Plugin({
         name: "@christianhugoch/empty_sc_test_plugin",

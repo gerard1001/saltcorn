@@ -17,6 +17,7 @@ const nodeMocks = {
 };
 
 const npmMocks = {
+  "npm-registry-fetch": join(mocksDir, "npm", "npm-registry-fetch"),
   "env-paths": join(mocksDir, "npm", "env-paths"),
   "fs-extended-attributes": join(mocksDir, "npm", "fs-extended-attributes"),
   tar: join(mocksDir, "npm", "tar"),
@@ -29,6 +30,21 @@ const npmMocks = {
 };
 
 const saltcornMocks = {
+  "@saltcorn/plugins-loader/plugin_installer": join(
+    mocksDir,
+    "saltcorn",
+    "plugins-loader-plugin-installer"
+  ),
+  "@saltcorn/plugins-loader/stable_versioning": join(
+    mocksDir,
+    "saltcorn",
+    "plugins-loader-stable-versioning"
+  ),
+  "@saltcorn/admin-models/models/tenant": join(
+    mocksDir,
+    "saltcorn",
+    "admin-models-tenant"
+  ),
   "./internal/async_json_stream": join(
     mocksDir,
     "models",

@@ -5,7 +5,6 @@ const { getState } = require("@saltcorn/data/db/state");
 const fs = require("fs");
 const Plugin = require("@saltcorn/data/models/plugin");
 const { prep_test_db } = require("../../common");
-const { loadAndSaveNewPlugin } = require("@saltcorn/server/load_plugins");
 const PluginInstaller = require("@saltcorn/plugins-loader/plugin_installer");
 
 const pluginsPath = path.join(__dirname, "test_plugin_packages");
@@ -94,7 +93,7 @@ const spawnTest = async (installDir, env) => {
 const preparePlugin = async (plugin, overwrites) => {
   await removeOldPlugin(plugin);
   removePluginsDir();
-  await loadAndSaveNewPlugin(
+  await Plugin.loadAndSaveNewPlugin(
     plugin,
     false,
     false,

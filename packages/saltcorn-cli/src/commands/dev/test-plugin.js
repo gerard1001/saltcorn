@@ -26,7 +26,7 @@ class TestPluginCommand extends Command {
     const reset = require("@saltcorn/data/db/reset_schema");
     const { auto_test_plugin } = require("@saltcorn/data/plugin-testing");
     const db = require("@saltcorn/data/db");
-    const { requirePlugin } = require("@saltcorn/server/load_plugins");
+    const Plugin = require("@saltcorn/data/models/plugin");
     const { args } = await this.parse(TestPluginCommand);
     await db.changeConnection({ database: "saltcorn_test" });
     await reset();
@@ -34,7 +34,7 @@ class TestPluginCommand extends Command {
     if (args.path[0] === "." || args.path[0] === "/") {
       const segments = args.path.split("/");
       const moduleName = lastPath(segments);
-      const { plugin_module } = await requirePlugin({
+      const { plugin_module } = await Plugin.requirePlugin({
         source: "local",
         location: args.path,
         name: moduleName,

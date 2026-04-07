@@ -24,11 +24,6 @@ const path = require("path");
 const getApp = require("./app");
 const Trigger = require("@saltcorn/data/models/trigger");
 const cluster = require("cluster");
-const {
-  loadAllPlugins,
-  loadAndSaveNewPlugin,
-  loadPlugin,
-} = require("./load_plugins");
 const { getConfig, setConfig } = require("@saltcorn/data/models/config");
 const { migrate } = require("@saltcorn/data/migrate");
 const socketio = require("socket.io");
@@ -255,7 +250,7 @@ const initMaster = async (
       async () => await migrate(db.connectObj.default_schema, true)
     );
   // load all plugins
-  await loadAllPlugins(true);
+  await Plugin.loadAllPlugins(true);
   // switch on sql logging - but it was initiated before???
   if (getState().getConfig("log_sql", false)) db.set_sql_logging();
 
@@ -265,7 +260,7 @@ const initMaster = async (
   if (db.is_it_multi_tenant()) {
     const tenants = await getAllTenants();
     await init_multi_tenant(
-      () => loadAllPlugins(true),
+      () => Plugin.loadAllPlugins(true),
       disableMigrate,
       tenants,
       db.connectObj.multi_node ? getMultiNodeListener : null
@@ -287,7 +282,7 @@ const workerDispatchMsg = ({ tenant, ...msg }) => {
 
   if (msg.refresh_plugin_cfg) {
     Plugin.findOne({ name: msg.refresh_plugin_cfg }).then((plugin) => {
-      if (plugin) loadPlugin(plugin);
+      if (plugin) Plugin.loadPlugin(plugin);
     });
   }
   if (!getState()) {
@@ -325,7 +320,7 @@ const workerDispatchMsg = ({ tenant, ...msg }) => {
   }
 
   if (msg.reload_plugins) {
-    loadAllPlugins(cluster.isPrimary, true);
+    Plugin.loadAllPlugins(cluster.isPrimary, true);
   }
   if (msg.refresh) {
     if (msg.refresh === "ephemeral_config")
@@ -337,7 +332,7 @@ const workerDispatchMsg = ({ tenant, ...msg }) => {
     add_tenant(msg.createTenant);
     create_tenant({
       t: msg.createTenant,
-      plugin_loader: loadAllPlugins,
+      plugin_loader: Plugin.loadAllPlugins,
       noSignalOrDB: true,
       tenant_template,
     });
@@ -346,9 +341,9 @@ const workerDispatchMsg = ({ tenant, ...msg }) => {
     });
   }
   if (msg.installPlugin) {
-    loadAndSaveNewPlugin(msg.installPlugin, msg.force, true);
+    Plugin.loadAndSaveNewPlugin(msg.installPlugin, msg.force, true);
   }
-  if (msg.restart_tenant) restart_tenant(loadAllPlugins);
+  if (msg.restart_tenant) restart_tenant(Plugin.loadAllPlugins);
   if (msg.removePlugin) getState().remove_plugin(msg.removePlugin, true);
 };
 
@@ -508,7 +503,7 @@ module.exports =
           4,
           "SIGHUP received: reloading plugins and state for all tenants"
         );
-        await loadAllPlugins(true, true);
+        await Plugin.loadAllPlugins(true, true);
         await getState().refresh_plugins(true);
         Object.entries(cluster.workers || {}).forEach(([wpid, w]) => {
           w.send({ reload_plugins: true });
@@ -516,7 +511,7 @@ module.exports =
         if (db.is_it_multi_tenant()) {
           for (const tenant of await getAllTenants()) {
             await db.runWithTenant(tenant, async () => {
-              await loadAllPlugins(true, true);
+              await Plugin.loadAllPlugins(true, true);
               await getState().refresh_plugins(true);
               Object.entries(cluster.workers || {}).forEach(([wpid, w]) => {
                 w.send({ tenant, reload_plugins: true });

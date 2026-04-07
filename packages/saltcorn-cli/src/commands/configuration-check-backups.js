@@ -38,24 +38,23 @@ class ConfigurationCheckBackupsCommand extends Command {
 
     const ten = "cfgcheckbackuptenannt";
     await deleteTenant(ten);
-    const { loadAllPlugins } = require("@saltcorn/server/load_plugins");
+    const Plugin = require("@saltcorn/data/models/plugin");
     const { init_multi_tenant } = require("@saltcorn/data/db/state");
-    await loadAllPlugins();
+    await Plugin.loadAllPlugins();
     for (const file of argv) {
       let hasError = false;
       if (file.endsWith(".zip")) {
         console.log(file);
         //create tenant, reset schema
         await switchToTenant(await insertTenant(ten, "", ""), "");
-        await init_multi_tenant(loadAllPlugins, undefined, [ten]);
+        await init_multi_tenant(Plugin.loadAllPlugins, undefined, [ten]);
 
         await db.runWithTenant(ten, async () => {
           //restore
           const { restore } = require("@saltcorn/admin-models/models/backup");
-          await loadAllPlugins();
+          await Plugin.loadAllPlugins();
 
-          const load_plugins = require("@saltcorn/server/load_plugins");
-          const savePlugin = (p) => load_plugins.loadAndSaveNewPlugin(p);
+          const savePlugin = (p) => Plugin.loadAndSaveNewPlugin(p);
           const err = await restore(file, savePlugin, true);
           if (err) {
             console.error("Error on restoring backup: " + file);

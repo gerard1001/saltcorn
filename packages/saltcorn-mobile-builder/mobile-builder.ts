@@ -1,4 +1,3 @@
-const { loadAllPlugins } = require("@saltcorn/server/load_plugins");
 const { PluginManager } = require("live-plugin-manager");
 import { join, basename } from "path";
 import { copySync } from "fs-extra";
@@ -228,7 +227,7 @@ export class MobileBuilder {
 
   public async prepareStep() {
     try {
-      await loadAllPlugins();
+      await Plugin.loadAllPlugins();
       this.pluginsLoaded = true;
       prepareBuildDir(
         this.buildDir,
@@ -286,7 +285,7 @@ export class MobileBuilder {
       );
       if (resultCode !== 0) return resultCode;
       if (!this.pluginsLoaded) {
-        await loadAllPlugins();
+        await Plugin.loadAllPlugins();
         this.pluginsLoaded = true;
       }
       copyPluginMobileAppDirs(this.buildDir);

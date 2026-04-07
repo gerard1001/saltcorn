@@ -76,7 +76,6 @@ const {
   //get_other_domain_tenant,
   get_process_init_time,
 } = require("@saltcorn/data/db/state");
-const { loadAllPlugins } = require("../load_plugins");
 const {
   create_backup,
   restore,
@@ -88,7 +87,6 @@ const {
   runConfigurationCheck,
 } = require("@saltcorn/admin-models/models/config-check");
 const fs = require("fs");
-const load_plugins = require("../load_plugins");
 const {
   restore_backup,
   send_admin_page,
@@ -1008,7 +1006,7 @@ router.post(
         const pack = JSON.parse(fs.readFileSync(req.files?.file?.tempFilePath));
         await db.withTransaction(async () => {
           await install_pack(pack, undefined, (p) =>
-            load_plugins.loadAndSaveNewPlugin(p)
+            Plugin.loadAndSaveNewPlugin(p)
           );
         });
         await getState().refresh();
@@ -1648,7 +1646,7 @@ router.post(
       if (process.send) getState().processSend("RestartServer");
       else process.exit(0);
     } else {
-      await restart_tenant(loadAllPlugins);
+      await restart_tenant(Plugin.loadAllPlugins);
       getState().processSend({
         restart_tenant: true,
         tenant: db.getTenantSchema(),
@@ -2030,7 +2028,7 @@ router.post(
     const newPath = File.get_new_path();
     await req.files.file.mv(newPath);
     const err = await restore(newPath, (p) =>
-      load_plugins.loadAndSaveNewPlugin(p)
+      Plugin.loadAndSaveNewPlugin(p)
     );
     if (err) req.flash("error", err);
     else req.flash("success", req.__("Successfully restored backup"));

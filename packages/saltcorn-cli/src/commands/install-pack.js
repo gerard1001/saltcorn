@@ -21,7 +21,7 @@ class InstallPackCommand extends Command {
       fetch_pack_by_name,
       install_pack,
     } = require("@saltcorn/admin-models/models/pack");
-    const load_plugins = require("@saltcorn/server/load_plugins");
+    const Plugin = require("@saltcorn/data/models/plugin");
 
     if (!flags.name && !flags.file) {
       console.error(
@@ -29,12 +29,11 @@ class InstallPackCommand extends Command {
       );
       this.exit(1);
     }
-    const { loadAllPlugins } = require("@saltcorn/server/load_plugins");
     const { init_multi_tenant } = require("@saltcorn/data/db/state");
     const { getAllTenants } = require("@saltcorn/admin-models/models/tenant");
-    await loadAllPlugins();
+    await Plugin.loadAllPlugins();
     const tenants = await getAllTenants();
-    await init_multi_tenant(loadAllPlugins, undefined, tenants);
+    await init_multi_tenant(Plugin.loadAllPlugins, undefined, tenants);
 
     await maybe_as_tenant_in_transaction(flags.tenant, async () => {
       if (flags.name) {
@@ -44,7 +43,7 @@ class InstallPackCommand extends Command {
           this.exit(1);
         }
         await install_pack(pack.pack, flags.name, (p) =>
-          load_plugins.loadAndSaveNewPlugin(p)
+          Plugin.loadAndSaveNewPlugin(p)
         );
       } else if (flags.file) {
         let pack;
@@ -55,7 +54,7 @@ class InstallPackCommand extends Command {
           this.exit(1);
         }
         await install_pack(pack, undefined, (p) =>
-          load_plugins.loadAndSaveNewPlugin(p)
+          Plugin.loadAndSaveNewPlugin(p)
         );
       }
     });

@@ -43,7 +43,7 @@ const {
 } = require("@saltcorn/markup/tags");
 const db = require("@saltcorn/data/db");
 
-const { loadAllPlugins, loadAndSaveNewPlugin } = require("../load_plugins");
+const Plugin = require("@saltcorn/data/models/plugin");
 const {
   isAdmin,
   error_catcher,
@@ -309,9 +309,9 @@ router.post(
 
         await create_tenant({
           t: subdomain,
-          plugin_loader: loadAllPlugins,
+          plugin_loader: Plugin.loadAllPlugins,
           noSignalOrDB: false,
-          loadAndSaveNewPlugin: loadAndSaveNewPlugin,
+          loadAndSaveNewPlugin: Plugin.loadAndSaveNewPlugin,
           tenant_template,
         });
         let new_url_create = newurl;

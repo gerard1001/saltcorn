@@ -4,7 +4,6 @@ import Plugin from "@saltcorn/data/models/plugin";
 import { assertIsSet } from "../../saltcorn-data/tests/assertions";
 import { rmSync, existsSync } from "fs";
 import { join } from "path";
-const load_plugins = require("@saltcorn/server/load_plugins");
 
 afterAll(db.close);
 
@@ -41,12 +40,12 @@ describe("webpack build", () => {
     const anyBootstrapTheme = await Plugin.store_by_name("any-bootstrap-theme");
     assertIsSet(anyBootstrapTheme);
     delete anyBootstrapTheme.id;
-    await load_plugins.loadAndSaveNewPlugin(anyBootstrapTheme);
+    await Plugin.loadAndSaveNewPlugin(anyBootstrapTheme);
 
     const tabulator = await Plugin.store_by_name("tabulator");
     assertIsSet(tabulator);
     delete tabulator.id;
-    await load_plugins.loadAndSaveNewPlugin(tabulator);
+    await Plugin.loadAndSaveNewPlugin(tabulator);
 
     if (existsSync(bundleDir))
       rmSync(bundleDir, { recursive: true, force: true });

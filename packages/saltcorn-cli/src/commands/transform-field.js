@@ -16,7 +16,7 @@ class TransformFieldCommand extends Command {
   async run() {
     const db = require("@saltcorn/data/db");
     const Table = require("@saltcorn/data/models/table");
-    const { loadAllPlugins } = require("@saltcorn/server/load_plugins");
+    const Plugin = require("@saltcorn/data/models/plugin");
     const { getState, init_multi_tenant } = require("@saltcorn/data/db/state");
     const { getAllTenants } = require("@saltcorn/admin-models/models/tenant");
 
@@ -24,10 +24,10 @@ class TransformFieldCommand extends Command {
       get_async_expression_function,
     } = require("@saltcorn/data/models/expression");
     const { args } = await this.parse(TransformFieldCommand);
-    await loadAllPlugins();
+    await Plugin.loadAllPlugins();
     if (args.tenant && db.is_it_multi_tenant()) {
       const tenants = await getAllTenants();
-      await init_multi_tenant(loadAllPlugins, undefined, tenants);
+      await init_multi_tenant(Plugin.loadAllPlugins, undefined, tenants);
     }
     const tenant = args.tenant || db.connectObj.default_schema;
     await db.runWithTenant(tenant, async () => {
