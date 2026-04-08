@@ -1004,6 +1004,61 @@ describe("run_action_column", () => {
   });
 });
 
+describe("_only_if with old_row on Update trigger", () => {
+  it("should set up trigger with _only_if using old_row", async () => {
+    getState().registerPlugin("mock_plugin", plugin_with_routes());
+    resetActionCounter();
+
+    const table = Table.findOne({ name: "patients" });
+    assertIsSet(table);
+
+    await Trigger.create({
+      action: "setCounter",
+      table_id: table.id,
+      when_trigger: "Update",
+      name: "onlyIfOldRow",
+      configuration: {
+        number: 99,
+        _only_if: "row.old_row.name !== row.name",
+      },
+    });
+  });
+
+  it("should fire trigger when name changes (row.old_row.name !== row.name)", async () => {
+    resetActionCounter();
+    const table = Table.findOne({ name: "patients" });
+    assertIsSet(table);
+
+    const row = await table.getRow({ name: "Kirk Douglas" });
+    assertIsSet(row);
+    await table.updateRow({ name: "Kirk Douglas Updated" }, row.id);
+    expect(getActionCounter()).toBe(99);
+  });
+
+  it("should not fire trigger when name is unchanged", async () => {
+    resetActionCounter();
+    const table = Table.findOne({ name: "patients" });
+    assertIsSet(table);
+
+    const row = await table.getRow({ name: "Kirk Douglas Updated" });
+    assertIsSet(row);
+    await table.updateRow({ name: "Kirk Douglas Updated" }, row.id);
+    expect(getActionCounter()).toBe(17);
+  });
+
+  it("should clean up", async () => {
+    const trigger = await Trigger.findOne({ name: "onlyIfOldRow" });
+    assertIsSet(trigger);
+    await trigger.delete();
+
+    const table = Table.findOne({ name: "patients" });
+    assertIsSet(table);
+    const row = await table.getRow({ name: "Kirk Douglas Updated" });
+    assertIsSet(row);
+    await table.updateRow({ name: "Kirk Douglas" }, row.id);
+  });
+});
+
 describe("plain_password_triggers", () => {
   const secret = "fw78fgfw$Efgy";
   it("should set up trigger", async () => {

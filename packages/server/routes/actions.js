@@ -439,9 +439,12 @@ const triggerForm = async (req, trigger) => {
         label: req.__("Only if"),
         type: "String",
         class: "validate-expression",
-        sublabel: req.__(
-          "Optional JavaScript expression to determine if the trigger should run."
-        ),
+        sublabel:
+          req.__(
+            "Optional JavaScript expression to determine if the trigger should run."
+          ) +
+          " " +
+          req.__("On updates, use <code>row.old_row</code> to access values before the update."),
         parent_field: "configuration",
         showIf: {
           when_trigger: [...table_triggers, ...additional_triggers_with_onlyif],

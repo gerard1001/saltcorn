@@ -425,7 +425,12 @@ class Trigger implements AbstractTrigger {
       : undefined;
 
     // Halt if _only_if condition evaluates to falsy
-    if (this.haltOnOnlyIf(runargs.row, runargs.user)) {
+    if (
+      this.haltOnOnlyIf(
+        { ...runargs.row, old_row: runargs.old_row },
+        runargs.user
+      )
+    ) {
       state.log(4, `Trigger "${this.name}" skipped due to _only_if condition.`);
       return;
     }
@@ -529,7 +534,7 @@ class Trigger implements AbstractTrigger {
 
   /**
    * Check if the trigger should halt based on the _only_if condition.
-   * @param row - The row data.
+   * @param row - The current (new) row data, potentially merged with extra trigger arguments.
    * @param user - The user data.
    * @returns {boolean} - Returns true if the _only_if condition exists and evaluates to falsy.
    */

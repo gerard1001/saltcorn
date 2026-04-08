@@ -737,9 +737,12 @@ function get_expression_function(
 }
 
 /**
- * @param {string} expression
- * @param {object[]} fields
- * @returns {any}
+ * Evaluate a JavaScript expression in the context of a row.
+ * @param {string} expression - The JavaScript expression to evaluate.
+ * @param {object} row - The current row data, whose fields are destructured as variables.
+ * @param {object} user - The current user object, available as `user` in the expression.
+ * @param {string} errorLocation - Optional label included in error messages to identify where the expression was used.
+ * @returns {any} - The result of evaluating the expression.
  */
 function eval_expression(
   expression: string,
