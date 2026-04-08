@@ -1,4 +1,5 @@
 const { expect } = require('@playwright/test');
+const fs = require('fs');
 const customAssert = require('../pageobject/utils.js');
 class PageFunctions {
   constructor(page) {
@@ -907,6 +908,1013 @@ class PageFunctions {
     await this.page.waitForTimeout(2000);
     fileName = await this.page.textContent(this.locators.tablebodylocator + " td:nth-child(2)");
     expect(fileName?.trim()).toBe(new_file_name);
+  }
+
+  async tc41_assert_site_structure_tabs_default_and_navigation(Logger, baseURL) {
+    await this.open_Site_Structure_Menu(baseURL, Logger);
+
+    await customAssert('Default active breadcrumb step should be Menu', async () => {
+      const activeCrumb = this.page.locator(this.locators.activeBreadcrumb).first();
+      await expect(activeCrumb).toBeVisible({ timeout: 30000 });
+      await expect(activeCrumb).toContainText('Menu');
+    });
+
+    await customAssert('All 10 tabs are present and active tab is Menu', async () => {
+      const expectedTabs = [
+        { href: '/menu', label: 'Menu' },
+        { href: '/search/config', label: 'Search' },
+        { href: '/library/list', label: 'Library' },
+        { href: '/site-structure/localizer', label: 'Languages' },
+        { href: '/page_group/settings', label: 'Pagegroups' },
+        { href: '/tag', label: 'Tags' },
+        { href: '/diagram', label: 'Diagram' },
+        { href: '/registry-editor', label: 'Registry editor' }
+      ];
+
+      const tabsContainer = this.page.locator(this.locators.siteStructureTabStrip);
+      await expect(tabsContainer).toBeVisible({ timeout: 15000 });
+
+      const tabLinks = this.page.locator(this.locators.siteStructureTabLinks);
+      const actualTabTexts = (await tabLinks.allTextContents()).map((txt) => txt.trim());
+      Logger?.info?.(`Site structure tabs: ${actualTabTexts.join(', ')}`);
+
+      for (const t of expectedTabs) {
+        const link = this.page.locator(`${this.locators.siteStructureTabStrip} a[href="${t.href}"]`).first();
+        await expect(link).toBeVisible({ timeout: 15000 });
+        await expect(link).toContainText(t.label);
+      }
+
+      const activeTab = this.page.locator(`${this.locators.siteStructureTabStrip} a.active`);
+      await expect(activeTab).toBeVisible({ timeout: 15000 });
+      await expect(activeTab).toContainText('Menu');
+
+      Logger?.info?.('Action: click each Site structure tab and verify navigation');
+      for (const t of expectedTabs) {
+        const tabLink = this.page.locator(`${this.locators.siteStructureTabStrip} a[href="${t.href}"]`).first();
+        Logger?.info?.(`Action: click tab ${t.label} (${t.href})`);
+        await tabLink.click({ force: true });
+        await expect(this.page).toHaveURL(new RegExp(`${t.href.replace('/', '\\/')}(\\?|$)`));
+        await expect(tabLink).toHaveClass(/active/);
+      }
+
+      Logger?.info?.('Action: return to Menu tab');
+      await this.page.locator(`${this.locators.siteStructureTabStrip} a[href="/menu"]`).first().click({ force: true });
+      await expect(this.page).toHaveURL(/\/menu(\?|$)/);
+    });
+
+    await this.takeDebugScreenshot('tc_41_tabs_01_all_tabs_rendered', Logger);
+  }
+
+  async tc41_assert_menu_tab_controls(Logger, baseURL) {
+    await this.open_Site_Structure_Menu(baseURL, Logger);
+
+    await customAssert('Menu editor card and main form controls are visible', async () => {
+      await expect(this.page.locator(this.locators.cardShadow)).toBeVisible({ timeout: 15000 });
+      const menuEditorHeader = this.page.locator(this.locators.cardHeaderH5).filter({ hasText: 'Menu editor' }).first();
+      await expect(menuEditorHeader).toBeVisible({ timeout: 15000 });
+      await expect(this.page.locator(this.locators.menuForm)).toBeVisible({ timeout: 15000 });
+
+      const typeSelect = this.page.locator(this.locators.menuTypeSelect);
+      await expect(typeSelect).toBeVisible({ timeout: 15000 });
+      // Many menu fields (e.g. keyboard shortcut) are conditional on item type; ensure View so labels exist.
+      await typeSelect.selectOption({ label: 'View' });
+      await expect(typeSelect).toHaveValue('View');
+
+      const expectedTypeOptions = [
+        'View', 'Page', 'Page Group', 'Admin Page', 'User Page',
+        'Link', 'Header', 'Dynamic', 'Search', 'Separator', 'Action'
+      ];
+      const typeOptions = this.page.locator(this.locators.menuTypeOptions);
+      await expect(typeOptions).toHaveCount(expectedTypeOptions.length);
+      const actualTypeOptions = await typeOptions.evaluateAll((opts) =>
+        opts.map((o) => (o.textContent || '').trim())
+      );
+      expect(actualTypeOptions).toEqual(expectedTypeOptions);
+
+      await expect(this.page.locator(this.locators.menuUpdateBtn)).toBeVisible({ timeout: 15000 });
+      await expect(this.page.locator(this.locators.menuUpdateBtn)).toBeDisabled();
+      await expect(this.page.locator(this.locators.menuAddBtn)).toBeVisible({ timeout: 15000 });
+      await expect(this.page.locator(this.locators.menuRecalcBtn)).toBeVisible({ timeout: 15000 });
+
+      await expect(this.page.locator(this.locators.menuIconBtn)).toBeVisible({ timeout: 15000 });
+
+      const menuLabelChecks = [
+        { loc: this.locators.menuLabelType, text: 'Type' },
+        { loc: this.locators.menuLabelText, text: 'Text label' },
+        { loc: this.locators.menuLabelTooltip, text: 'Tooltip' },
+        { loc: this.locators.menuLabelMinRole, text: 'Minimum role' },
+        { loc: this.locators.menuLabelMaxRole, text: 'Maximum role' },
+        { loc: this.locators.menuLabelShowIf, text: 'Show if' },
+        { loc: this.locators.menuLabelDisableMobile, text: 'Disable on mobile' },
+        { loc: this.locators.menuLabelTargetBlank, text: 'Open in new tab' },
+        { loc: this.locators.menuLabelModal, text: 'Open in popup modal?' },
+        { loc: this.locators.menuLabelStyle, text: 'Style' },
+        { loc: this.locators.menuLabelLocation, text: 'Location' }
+      ];
+      for (const c of menuLabelChecks) await expect(this.page.locator(c.loc)).toContainText(c.text);
+
+      const shortcutLbl = this.page.locator(this.locators.menuLabelShortcut);
+      if ((await shortcutLbl.count()) > 0) {
+        await expect(shortcutLbl).toContainText('Keyboard shortcut');
+      }
+
+      const menuRoleChecks = [
+        { loc: this.locators.menuMinRoleAdmin, text: 'admin' },
+        { loc: this.locators.menuMaxRolePublic, text: 'public' }
+      ];
+      for (const c of menuRoleChecks) await expect(this.page.locator(c.loc)).toHaveText(c.text);
+
+      await expect(this.page.locator(this.locators.menuTree)).toBeVisible({ timeout: 15000 });
+      const menuTreeSections = ['Tables', 'Views', 'Pages', 'Settings'];
+      for (const s of menuTreeSections) {
+        await expect(this.page.locator(this.locators.menuTreeTxt, { hasText: s }).first()).toBeVisible({ timeout: 15000 });
+      }
+
+      Logger?.info?.('Action: click Menu Add button (trial)');
+      await this.page.locator(this.locators.menuAddBtn).click({ trial: true });
+      Logger?.info?.('Action: click Menu Recalculate button (trial)');
+      await this.page.locator(this.locators.menuRecalcBtn).click({ trial: true });
+
+      Logger?.info?.('Action: change Menu item Type to Link');
+      await typeSelect.selectOption({ label: 'Link' });
+      await expect(typeSelect).toHaveValue('Link');
+      Logger?.info?.('Action: change Menu item Type back to View');
+      await typeSelect.selectOption({ label: 'View' });
+      await expect(typeSelect).toHaveValue('View');
+    });
+
+    await this.takeDebugScreenshot('tc_41_menu_01_controls', Logger);
+  }
+
+  async tc41_assert_search_tab_controls(Logger, baseURL) {
+    await this.open_Site_Structure_Menu(baseURL, Logger);
+    await this.Site_Structure_to_Search();
+
+    await customAssert('Search configuration UI is visible with expected controls', async () => {
+      await expect(this.page).toHaveURL(/\/search\/config/);
+
+      const activeCrumb = this.page.locator(this.locators.activeBreadcrumb).first();
+      await expect(activeCrumb).toBeVisible({ timeout: 15000 });
+      await expect(activeCrumb).toContainText('Search');
+
+      const header = this.page.locator(this.locators.cardHeaderH5).filter({ hasText: 'Search configuration' }).first();
+      await expect(header).toBeVisible({ timeout: 15000 });
+
+      const form = this.page.locator(this.locators.searchConfigForm);
+      await expect(form).toBeVisible({ timeout: 15000 });
+
+      const tableDescCheckbox = this.page.locator(this.locators.searchTableDescription);
+      await expect(tableDescCheckbox).toBeVisible({ timeout: 15000 });
+      await expect(tableDescCheckbox).toBeChecked();
+
+      const decorationSelect = this.page.locator(this.locators.searchResultsDecoration);
+      await expect(decorationSelect).toBeVisible({ timeout: 15000 });
+      await expect(this.page.locator(this.locators.searchResultsDecorationOptions)).toHaveCount(2);
+      await expect(this.page.locator(this.locators.searchResultsCards)).toHaveText('Cards');
+      await expect(this.page.locator(this.locators.searchResultsTabs)).toHaveText('Tabs');
+
+      const disableFts = this.page.locator(this.locators.searchDisableFts);
+      await expect(disableFts).toBeVisible({ timeout: 15000 });
+      await expect(disableFts).not.toBeChecked();
+
+      Logger?.info?.('Action: trial click Search link from configuration page');
+      await this.page.locator(this.locators.searchLink).first().click({ trial: true });
+
+      Logger?.info?.('Action: toggle Search table description checkbox off/on');
+      await tableDescCheckbox.click();
+      await expect(tableDescCheckbox).not.toBeChecked();
+      await tableDescCheckbox.click();
+      await expect(tableDescCheckbox).toBeChecked();
+
+      Logger?.info?.('Action: toggle Search disable FTS checkbox off/on');
+      await disableFts.click();
+      await expect(disableFts).toBeChecked();
+      await disableFts.click();
+      await expect(disableFts).not.toBeChecked();
+
+      Logger?.info?.('Action: change Search results decoration Tabs -> Cards');
+      await decorationSelect.selectOption('Tabs');
+      await expect(decorationSelect).toHaveValue('Tabs');
+      await decorationSelect.selectOption('Cards');
+      await expect(decorationSelect).toHaveValue('Cards');
+
+      Logger?.info?.('Action: click Search link to navigate to /search');
+      await this.page.locator(this.locators.searchLink).first().click({ force: true });
+      await expect(this.page).toHaveURL(/\/search(\?|$)/);
+
+      Logger?.info?.('Action: go back to /search/config');
+      await this.page.goBack();
+      await expect(this.page).toHaveURL(/\/search\/config(\?|$)/);
+    });
+
+    await this.takeDebugScreenshot('tc_41_search_01_controls', Logger);
+  }
+
+  async tc41_assert_library_tab_table_headers(Logger, baseURL) {
+    await this.open_Site_Structure_Menu(baseURL, Logger);
+    await this.Site_Structure_to_Library();
+
+    await customAssert('Library UI has the expected table structure', async () => {
+      await expect(this.page).toHaveURL(/\/library\/list/);
+
+      const header = this.page.locator(this.locators.cardHeaderH5);
+      await expect(header).toContainText('Library: component assemblies');
+
+      const table = this.page.locator(this.locators.tableResponsiveSm);
+      await expect(table).toBeVisible({ timeout: 15000 });
+
+      const ths = table.locator(this.locators.tableHeadCells);
+      await expect(ths).toHaveCount(3);
+
+      const expectedLibHeaders = ['Name', 'Icon', 'Delete'];
+      for (let i = 0; i < expectedLibHeaders.length; i++) {
+        await expect(ths.nth(i)).toContainText(expectedLibHeaders[i]);
+      }
+
+      Logger?.info?.('Action: trial click Settings breadcrumb link');
+      await this.page.locator(this.locators.settingsBreadcrumbLink).first().click({ trial: true });
+    });
+
+    await this.takeDebugScreenshot('tc_41_library_01_table_headers', Logger);
+  }
+
+  async tc41_assert_languages_tab_add_language_and_upload_csv(Logger, baseURL) {
+    const debugDir = 'test-results';
+    if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir, { recursive: true });
+
+    await this.open_Site_Structure_Menu(baseURL, Logger);
+    await this.Site_Structure_to_Languages();
+
+    await customAssert('Languages UI shows table + add/upload controls', async () => {
+      await expect(this.page).toHaveURL(/\/site-structure\/localizer/);
+
+      const header = this.page.locator(this.locators.activeBreadcrumb).first();
+      await expect(header).toContainText('Languages');
+
+      const table = this.page.locator(this.locators.tableResponsiveSm);
+      await expect(table).toBeVisible({ timeout: 15000 });
+
+      const ths = table.locator(this.locators.tableHeadCells);
+      await expect(ths).toHaveCount(5);
+
+      const expectedLangHeaders = ['Language', 'Locale', 'Default', 'Language CSV', 'Delete'];
+      for (let i = 0; i < expectedLangHeaders.length; i++) {
+        await expect(ths.nth(i)).toContainText(expectedLangHeaders[i]);
+      }
+
+      const langUiCtas = [
+        { locator: this.locators.languagesAddLink, label: 'Add language' },
+        { locator: this.locators.languagesUploadLabel, label: 'Upload language CSV' }
+      ];
+      for (const c of langUiCtas) {
+        const el = this.page.locator(c.locator).first();
+        await expect(el).toBeVisible({ timeout: 15000 });
+        await expect(el).toContainText(c.label);
+      }
+
+      const addLang = this.page.locator(this.locators.languagesAddLink).first();
+
+      await expect(this.page.locator(this.locators.languagesUploadInput)).toHaveAttribute('type', 'file');
+      await expect(this.page.locator(this.locators.languagesUploadInput)).toHaveClass(/d-none/);
+      await expect(this.page.locator(this.locators.languagesUploadForm)).toBeVisible({ timeout: 15000 });
+
+      // E2E flow: Add language + validate persistence by re-checking the edit form fields and then the table row.
+      const langName = `E2E_Lang_${Date.now()}`;
+      const langLocale = `e2e-${Date.now().toString().slice(-4)}`;
+
+      Logger?.info?.('Action: click Add language');
+      await addLang.click({ force: true });
+      await expect(this.page).toHaveURL(/\/site-structure\/localizer\/add-lang/);
+
+      const nameField = this.page.locator(this.locators.languageNameInput).first();
+      const localeField = this.page.locator(this.locators.languageLocaleInput).first();
+      await expect(nameField).toBeVisible({ timeout: 15000 });
+      await expect(localeField).toBeVisible({ timeout: 15000 });
+
+      Logger?.info?.('Action: fill new language name + locale');
+      await nameField.fill(langName);
+      await localeField.fill(langLocale);
+
+      Logger?.info?.('Action: submit new language form');
+      await this.page.locator(this.locators.submitButtonGeneric).first().click();
+      await expect(this.page).toHaveURL(/\/site-structure\/localizer\/edit\//);
+
+      await this.assert_Mutation_Persistence('language create', async () => {
+        await expect(this.page.locator(this.locators.languageNameInput).first()).toHaveValue(langName);
+        await expect(this.page.locator(this.locators.languageLocaleInput).first()).toHaveValue(langLocale);
+      }, Logger);
+
+      const langTableRows = `${this.locators.tableResponsiveSm} ${this.locators.tableBodyRows}`;
+      await this.page.goto(`${baseURL}/site-structure/localizer`, { waitUntil: 'domcontentloaded' });
+      await expect(this.page).toHaveURL(/\/site-structure\/localizer(\?|$)/);
+      await expect(this.page.locator(langTableRows).filter({ hasText: langName }).first()).toBeVisible({ timeout: 30000 });
+
+      // E2E flow: upload CSV from hidden input and verify persistence in the table.
+      const langCsvPath = `${debugDir}/tc_41_langpack_${Date.now()}.csv`;
+      fs.writeFileSync(langCsvPath, 'key,value\nhello,Hello from E2E\n');
+
+      Logger?.info?.('Action: upload language CSV');
+      await this.page.locator(this.locators.languagesUploadInput).setInputFiles(langCsvPath);
+      await expect(this.page).toHaveURL(/\/site-structure\/localizer(\?|$)/);
+
+      await this.assert_Mutation_Persistence('language csv upload', async () => {
+        await expect(this.page.locator(langTableRows).filter({ hasText: langName }).first()).toBeVisible({ timeout: 15000 });
+      }, Logger);
+
+      // Best-effort cleanup: delete created language row.
+      const createdRow = this.page.locator(langTableRows).filter({ hasText: langName }).first();
+      if ((await createdRow.count()) > 0) {
+        const deleteLink = createdRow.locator(this.locators.languagesDeleteAction).first();
+        if ((await deleteLink.count()) > 0) {
+          Logger?.info?.('Action: delete created language row');
+          await this.run_With_Dialog_Accept(async () => {
+            await deleteLink.click({ force: true });
+          }, Logger);
+          await this.assert_Mutation_Persistence('language delete', async () => {
+            await expect(this.page.locator(langTableRows).filter({ hasText: langName })).toHaveCount(0);
+          }, Logger);
+        }
+      }
+    });
+
+    await this.takeDebugScreenshot('tc_41_languages_01_controls', Logger);
+  }
+
+  async tc41_assert_pagegroups_tab_controls(Logger, baseURL) {
+    await this.open_Site_Structure_Menu(baseURL, Logger);
+    await this.Site_Structure_to_Page_groups();
+
+    await customAssert('Pagegroups UI renders both cards and key form controls', async () => {
+      await expect(this.page).toHaveURL(/\/page_group\/settings/);
+
+      const activeCrumb = this.page.locator(this.locators.activeBreadcrumb).first();
+      await expect(activeCrumb).toContainText('Pagegroups');
+
+      const userAgentHeader = this.page.locator(this.locators.cardHeaderH5).filter({ hasText: 'User Agent screen infos' }).first();
+      await expect(userAgentHeader).toBeVisible({ timeout: 15000 });
+
+      const screenInfoCells = ['web', '1920', '1000', '1848', '980'];
+      const screenInfoTd = this.page.locator(`${this.locators.tableResponsiveSm} td`);
+      for (const v of screenInfoCells) {
+        await expect(screenInfoTd.filter({ hasText: v }).first()).toBeVisible({ timeout: 15000 });
+      }
+
+      const card2Header = this.page.locator(this.locators.cardHeaderH5).filter({ hasText: 'Page Group settings' }).first();
+      await expect(card2Header).toBeVisible({ timeout: 15000 });
+
+      await expect(this.page.locator(this.locators.pagegroupsStrategy)).toBeVisible({ timeout: 15000 });
+      await expect(this.page.locator(this.locators.pagegroupsStrategy)).toHaveValue('guess_from_user_agent');
+
+      const strategyOptionChecks = [
+        { loc: this.locators.pagegroupsStrategyGuess, text: 'Guess from user agent' },
+        { loc: this.locators.pagegroupsStrategyReload, text: 'Reload' }
+      ];
+      for (const c of strategyOptionChecks) await expect(this.page.locator(c.loc)).toHaveText(c.text);
+
+      Logger?.info?.('Action: change missing screen info strategy to Reload and save');
+      await this.page.locator(this.locators.pagegroupsStrategy).selectOption('reload');
+      await expect(this.page.locator(this.locators.pagegroupsStrategy)).toHaveValue('reload');
+
+      await this.page.locator(this.locators.submitButtonGeneric).first().click();
+      await this.assert_Mutation_Persistence('pagegroup strategy reload save', async () => {
+        await expect(this.page.locator(this.locators.pagegroupsStrategy)).toHaveValue('reload');
+      }, Logger);
+
+      await expect(this.page).toHaveURL(/\/page_group\/settings(\?|$)/);
+      await expect(this.page.locator(this.locators.pagegroupsStrategy)).toHaveValue('reload');
+
+      Logger?.info?.('Action: change missing screen info strategy back to Guess from user agent and save');
+      await this.page.locator(this.locators.pagegroupsStrategy).selectOption('guess_from_user_agent');
+      await expect(this.page.locator(this.locators.pagegroupsStrategy)).toHaveValue('guess_from_user_agent');
+
+      await this.page.locator(this.locators.submitButtonGeneric).first().click();
+      await this.assert_Mutation_Persistence('pagegroup strategy reset save', async () => {
+        await expect(this.page.locator(this.locators.pagegroupsStrategy)).toHaveValue('guess_from_user_agent');
+      }, Logger);
+
+      const addDeviceLink = this.page.locator(this.locators.pagegroupsAddDevice).first();
+      await expect(addDeviceLink).toBeVisible({ timeout: 15000 });
+      await expect(addDeviceLink).toContainText('Add screen info');
+
+      Logger?.info?.('Action: click Add screen info');
+      await addDeviceLink.click({ force: true });
+      await expect(this.page).toHaveURL(/\/page_group\/settings\/add-device/);
+
+      Logger?.info?.('Action: go back to /page_group/settings');
+      await this.page.goBack();
+      await expect(this.page).toHaveURL(/\/page_group\/settings(\?|$)/);
+    });
+
+    await this.takeDebugScreenshot('tc_41_pagegroups_01_controls', Logger);
+  }
+
+  async tc41_assert_tags_tab_controls(Logger, baseURL) {
+    await this.open_Site_Structure_Menu(baseURL, Logger);
+    await this.Site_Structure_to_Tags();
+
+    await customAssert('Tags table shows expected columns and Create tag CTA', async () => {
+      await expect(this.page).toHaveURL(/\/tag$/);
+
+      const activeCrumb = this.page.locator(this.locators.activeBreadcrumb).first();
+      await expect(activeCrumb).toContainText('Tags');
+
+      const header = this.page.locator(this.locators.cardHeaderH5).filter({ hasText: 'Tags' }).first();
+      await expect(header).toBeVisible({ timeout: 15000 });
+
+      const table = this.page.locator(this.locators.tableResponsiveSm);
+      await expect(table).toBeVisible({ timeout: 15000 });
+
+      const ths = table.locator(this.locators.tableHeadCells);
+      await expect(ths).toHaveCount(2);
+      const expectedTagHeaders = ['Tag name', 'Delete'];
+      for (let i = 0; i < expectedTagHeaders.length; i++) await expect(ths.nth(i)).toContainText(expectedTagHeaders[i]);
+
+      const rows = table.locator(this.locators.tableBodyRows);
+      const rowCount = await rows.count();
+      Logger?.info?.(`Tags table tbody rowCount=${rowCount}`);
+
+      const createTag = this.page.locator(this.locators.tagsCreateLink).first();
+      await expect(createTag).toBeVisible({ timeout: 15000 });
+      await expect(createTag).toContainText('Create tag');
+
+      if (rowCount > 0) {
+        for (let i = 0; i < rowCount; i++) {
+          await expect(rows.nth(i).locator('td').first().locator('a').first()).toBeVisible({ timeout: 15000 });
+        }
+      }
+
+      // E2E: create temporary tag and delete it.
+      const tempTag = `e2e_tag_${Date.now()}`;
+      Logger?.info?.('Action: click Create tag');
+      await createTag.click({ force: true });
+      await expect(this.page).toHaveURL(/\/tag\/new/);
+
+      Logger?.info?.('Action: fill temporary tag name + submit');
+      await this.page.locator(this.locators.languageNameInput).fill(tempTag);
+      await this.page.locator(this.locators.submitButtonGeneric).first().click();
+      await expect(this.page).toHaveURL(/\/tag\/\d+/);
+
+      await this.assert_Mutation_Persistence('tag create', async () => {
+        await expect(this.page).toHaveURL(/\/tag\/\d+/);
+      }, Logger);
+
+      await this.page.goto(`${baseURL}/tag`, { waitUntil: 'domcontentloaded' });
+      await expect(this.page).toHaveURL(/\/tag(\?|$)/);
+
+      const tempTagRow = this.page.locator(`${this.locators.tableResponsiveSm} ${this.locators.tableBodyRows}`).filter({ hasText: tempTag }).first();
+      await expect(tempTagRow).toBeVisible({ timeout: 30000 });
+
+      const tempTagDelete = tempTagRow.locator(this.locators.languagesDeleteAction).first();
+      if ((await tempTagDelete.count()) > 0) {
+        Logger?.info?.('Action: delete temporary tag');
+        await this.run_With_Dialog_Accept(async () => {
+          await tempTagDelete.click({ force: true });
+        }, Logger);
+        await this.assert_Mutation_Persistence('tag delete', async () => {
+          await expect(this.page.locator(`${this.locators.tableResponsiveSm} ${this.locators.tableBodyRows}`).filter({ hasText: tempTag })).toHaveCount(0);
+        }, Logger);
+      }
+    });
+
+    await this.takeDebugScreenshot('tc_41_tags_01_controls', Logger);
+  }
+
+  async tc41_assert_diagram_tab_controls(Logger, baseURL) {
+    await this.open_Site_Structure_Menu(baseURL, Logger);
+    await this.Site_Structure_to_Diagram();
+
+    await customAssert('Diagram UI has dropdown filters and #cy canvas', async () => {
+      await expect(this.page).toHaveURL(/\/diagram/);
+      await expect(this.page.locator(this.locators.diagramCanvas)).toBeVisible({ timeout: 15000 });
+
+      const header = this.page.locator(this.locators.cardHeaderH5).filter({ hasText: 'Application diagram' }).first();
+      await expect(header).toBeVisible({ timeout: 15000 });
+
+      const allEntitiesBtn = this.page.locator(this.locators.diagramAllEntitiesBtn).first();
+      Logger?.info?.('Action: click All entities button');
+      await allEntitiesBtn.click({ force: true });
+
+      const showViews = this.page.locator(this.locators.diagramShowViews);
+      const showPages = this.page.locator(this.locators.diagramShowPages);
+      const showTables = this.page.locator(this.locators.diagramShowTables);
+      const showTriggers = this.page.locator(this.locators.diagramShowTriggers);
+
+      const diagramAllEntityChecks = [
+        { cb: showViews, label: this.locators.diagramLabelShowViews, text: 'Views' },
+        { cb: showPages, label: this.locators.diagramLabelShowPages, text: 'Pages' },
+        { cb: showTables, label: this.locators.diagramLabelShowTables, text: 'Tables' },
+        { cb: showTriggers, label: this.locators.diagramLabelShowTriggers, text: 'Triggers' }
+      ];
+      for (const c of diagramAllEntityChecks) {
+        await expect(c.cb).toBeChecked();
+        await expect(this.page.locator(c.label)).toHaveText(c.text);
+      }
+
+      const newBtn = this.page.locator(this.locators.diagramNewBtn).first();
+      Logger?.info?.('Action: click Diagram New dropdown');
+      await newBtn.click({ force: true });
+
+      const newDropdownLinks = [
+        { loc: this.locators.diagramNewViewLink, count: 1 },
+        { loc: this.locators.diagramNewPageLink, count: 1 },
+        { loc: this.locators.diagramNewTableLink, count: 1 },
+        { loc: this.locators.diagramNewTriggerLink, count: 1 }
+      ];
+      for (const c of newDropdownLinks) await expect(this.page.locator(c.loc)).toHaveCount(c.count);
+
+      const viewCreateHref = await this.page.locator(this.locators.diagramNewViewLink).first().getAttribute('href');
+      expect(viewCreateHref).toBeTruthy();
+
+      Logger?.info?.('Action: navigate using View create link from New dropdown');
+      await this.page.goto(`${baseURL}${viewCreateHref}`, { waitUntil: 'domcontentloaded' });
+      await expect(this.page).toHaveURL(/\/viewedit\/new/);
+
+      Logger?.info?.('Action: go back to Diagram');
+      await this.page.goBack();
+      await expect(this.page).toHaveURL(/\/diagram(\?|$)/);
+
+      const tagsBtn = this.page.locator(this.locators.diagramTagsBtn).first();
+      Logger?.info?.('Action: open Diagram Tags dropdown');
+      await tagsBtn.click({ force: true });
+
+      await expect(this.page.locator(this.locators.diagramNoTags)).toBeChecked();
+      const namedTagFilters = this.page.locator('[id^="tagFilter_box_"]');
+      const namedTagFilterCount = await namedTagFilters.count();
+      if (namedTagFilterCount > 0) {
+        await expect(namedTagFilters.first()).not.toBeChecked();
+      } else {
+        Logger?.info?.('Diagram Tags: no per-tag filter checkboxes (only no tags)');
+      }
+      await expect(this.page.locator(this.locators.diagramTagNewLink)).toHaveCount(1);
+
+      Logger?.info?.('Action: trial click Diagram refresh and camera buttons');
+      await expect(this.page.locator(this.locators.diagramRefreshBtn).first()).toBeVisible({ timeout: 15000 });
+      await expect(this.page.locator(this.locators.diagramCameraBtn).first()).toBeVisible({ timeout: 15000 });
+      await this.page.locator(this.locators.diagramRefreshBtn).first().click({ trial: true });
+      await this.page.locator(this.locators.diagramCameraBtn).first().click({ trial: true });
+
+      if (namedTagFilterCount > 0) {
+        Logger?.info?.('Action: toggle first tag filter checkbox');
+        const cb = namedTagFilters.first();
+        await cb.click({ force: true });
+        await expect(cb).toBeChecked();
+        await cb.click({ force: true });
+        await expect(cb).not.toBeChecked();
+      }
+    });
+
+    await this.takeDebugScreenshot('tc_41_diagram_01_filters', Logger);
+  }
+
+  async tc41_assert_registry_editor_tab_controls(Logger, baseURL) {
+    await this.open_Site_Structure_Menu(baseURL, Logger);
+    await this.Site_Structure_to_Registry_editor();
+
+    await customAssert('Registry editor UI is visible with entity tree and search box', async () => {
+      await expect(this.page).toHaveURL(/\/registry-editor/);
+
+      const activeCrumb = this.page.locator(this.locators.activeBreadcrumb).first();
+      await expect(activeCrumb).toContainText('Registry editor');
+
+      const entitiesCardHeader = this.page.locator(this.locators.registryEntitiesHeader).filter({ hasText: 'Entities' }).first();
+      await expect(entitiesCardHeader).toBeVisible({ timeout: 15000 });
+
+      const expectedSections = ['Tables', 'Views', 'Pages', 'Triggers', 'Configuration', 'Modules'];
+      for (const section of expectedSections) {
+        await expect(this.page.locator(this.locators.kateTreeSummary).filter({ hasText: section }).first()).toBeVisible({ timeout: 15000 });
+      }
+
+      await expect(this.page.locator(this.locators.registryRightPanelBody).filter({ hasText: 'Choose an entity to edit' }).first()).toBeVisible({ timeout: 15000 });
+
+      const searchInput = this.page.locator(this.locators.registryEntitiesSearchInput);
+      await expect(searchInput).toBeVisible({ timeout: 15000 });
+      await expect(searchInput).toHaveAttribute('placeholder', 'Search');
+
+      Logger?.info?.('Action: search Registry editor for "timezone"');
+      await searchInput.fill('timezone');
+      Logger?.info?.('Action: submit Registry editor search');
+      await this.page.locator(this.locators.registryEntitiesSearchSubmit).click();
+      await this.page.waitForURL(/q=timezone/, { timeout: 30000 });
+
+      const timezoneLink = this.page.locator(this.locators.kateTreeTimezoneLink).first();
+      await expect(timezoneLink).toBeVisible({ timeout: 15000 });
+
+      Logger?.info?.('Action: click timezone entity link');
+      await timezoneLink.click({ force: true });
+      await expect(this.page).toHaveURL(/ename=timezone/);
+      await expect(this.page.locator(this.locators.saveButtonByText).first()).toBeVisible({ timeout: 15000 });
+    });
+
+    await this.takeDebugScreenshot('tc_41_registry_01_after_search', Logger);
+  }
+
+  
+  async navigate_To_Site_Structure() {
+    await this.page.waitForSelector(this.locators.SiteStructure);
+    await this.page.click(this.locators.SiteStructure);
+  }
+  async open_Site_Structure_Menu(baseURL, Logger) {
+    const menuTabActiveCount = await this.page
+      .locator(`${this.locators.siteStructureTabStrip} a[href="/menu"].active`)
+      .count();
+    if (menuTabActiveCount > 0) return;
+
+    Logger?.info('Action: open Settings -> Site structure');
+    await this.navigate_To_Settings();
+
+    const collapseSettings = this.page.locator(this.locators.collapseSettings);
+    const collapseSettingsShown = this.page.locator(this.locators.collapseSettingsShown);
+    await collapseSettings.waitFor({ state: 'attached', timeout: 30000 });
+
+    if ((await collapseSettingsShown.count()) === 0) {
+      Logger?.info('Action: expand Settings sidebar section');
+      const settingsNavLink = this.page.locator(this.locators.settingsNavLink).first();
+      await settingsNavLink.waitFor({ state: 'attached', timeout: 30000 });
+      await settingsNavLink.click({ force: true });
+      const shownAfter = await collapseSettingsShown.count();
+      Logger?.info(`Settings collapse shownAfterClick=${shownAfter}`);
+    }
+
+    const siteStructureScoped = this.page.locator(this.locators.siteStructureScoped).first();
+    const siteStructureFallback = this.page.locator(this.locators.siteStructureFallback).first();
+    let siteStructureLink = siteStructureScoped;
+    if ((await siteStructureScoped.count()) === 0) siteStructureLink = siteStructureFallback;
+
+    await siteStructureLink.waitFor({ state: 'attached', timeout: 30000 });
+    const isVisible = await siteStructureLink.isVisible().catch(() => false);
+    Logger?.info(`Site structure sidebar link attached. isVisible=${isVisible}`);
+    if (isVisible) {
+      await siteStructureLink.click({ force: true });
+    } else {
+      Logger?.info('Action: Site structure link not visible, click via DOM');
+      await this.page.evaluate(
+        ({ scopedSel, fallbackSel }) => {
+          const scoped = document.querySelector(scopedSel);
+          const any = document.querySelector(fallbackSel);
+          (scoped || any)?.click();
+        },
+        {
+          scopedSel: this.locators.siteStructureScoped,
+          fallbackSel: this.locators.siteStructureFallback,
+        }
+      );
+    }
+
+    const tabStrip = this.page.locator(this.locators.siteStructureTabStrip);
+    const waitUrlOrUi = async (timeoutMs) => {
+      return await Promise.race([
+        this.page.waitForURL(/\/(menu|site-structure)(\?|$)/, { timeout: timeoutMs }).then(() => 'url').catch(() => null),
+        tabStrip.waitFor({ state: 'visible', timeout: timeoutMs }).then(() => 'ui').catch(() => null),
+      ]);
+    };
+    let urlOrUi = await waitUrlOrUi(15000);
+    Logger?.info(`Site structure navigation wait resolvedBy=${urlOrUi || 'timeout'}`);
+    if (!urlOrUi) {
+      Logger?.info('Fallback: hard navigate to /menu');
+      await this.page.goto(`${baseURL}/menu`, { waitUntil: 'domcontentloaded' });
+      urlOrUi = await waitUrlOrUi(30000);
+      Logger?.info(`Site structure navigation fallback resolvedBy=${urlOrUi || 'timeout'}`);
+    }
+  }
+
+  async openRegistryEditorFromPeopleList(Logger) {
+    // Navigate from Views -> People_list overflow (...) -> Registry editor.
+    if (this.page.url().includes('/registry-editor')) return;
+
+    Logger?.info('Action: open Views (left panel)');
+    await this.views();
+    await this.page.waitForTimeout(1500);
+
+    const yourViews = this.page.getByText('Your views').first();
+    await expect(yourViews).toBeVisible({ timeout: 15000 });
+
+    Logger?.info('Action: locate People_list row in views table');
+    const peopleListRow = this.page.locator('table tbody tr').filter({ hasText: 'People_list' }).first();
+    await expect(peopleListRow).toBeVisible({ timeout: 15000 });
+
+    Logger?.info('Action: open row overflow menu for People_list');
+    let overflowButton = null;
+    const overflowCandidates = [
+      peopleListRow.locator('button.dropdown-toggle').first(),
+      peopleListRow.locator('button[data-bs-toggle="dropdown"]').first(),
+      peopleListRow.locator('button:has(svg)').first(),
+      peopleListRow.locator('button:has-text("...")').first(),
+      peopleListRow.locator('a:has-text("...")').first(),
+    ];
+
+    for (const candidate of overflowCandidates) {
+      if ((await candidate.count()) > 0) {
+        if ((await candidate.first().isVisible().catch(() => false)) === true) {
+          overflowButton = candidate;
+          break;
+        }
+      }
+    }
+
+    expect(overflowButton).not.toBeNull();
+    await expect(overflowButton).toBeVisible({ timeout: 5000 });
+
+    await overflowButton.click();
+    await this.page.waitForTimeout(1000);
+
+    Logger?.info('Action: click Registry editor option from dropdown');
+    let registryEditorMenuItem = null;
+    const registryCandidates = [
+      this.page.locator('.dropdown-menu.show a:has-text("Registry editor")').first(),
+      this.page.locator('.dropdown-menu.show button:has-text("Registry editor")').first(),
+      this.page.getByRole('menuitem', { name: 'Registry editor' }).first(),
+    ];
+
+    for (const candidate of registryCandidates) {
+      if ((await candidate.count()) > 0) {
+        if ((await candidate.first().isVisible().catch(() => false)) === true) {
+          registryEditorMenuItem = candidate;
+          break;
+        }
+      }
+    }
+
+    expect(registryEditorMenuItem).not.toBeNull();
+    await expect(registryEditorMenuItem).toBeVisible({ timeout: 5000 });
+
+    await registryEditorMenuItem.click();
+    await this.page.waitForTimeout(2500);
+
+    await expect(this.page).toHaveURL(/\/registry-editor/, { timeout: 15000 });
+    await expect(this.page.locator(this.locators.registrylocator)).toBeVisible({ timeout: 15000 });
+  }
+
+  async run_With_Dialog_Accept(action, Logger) {
+    this.page.once('dialog', async (dialog) => {
+      Logger?.info(`Dialog accepted: ${dialog.message()}`);
+      await dialog.accept();
+    });
+    await action();
+  }
+
+  async assert_Mutation_Persistence(description, persistenceCheck, Logger) {
+    await persistenceCheck();
+    Logger?.info(`Mutation feedback (${description}): persistence verified (no toast assumption)`);
+  }
+
+  async navigate_To_Events() {
+    await this.page.waitForSelector(this.locators.Events, { timeout: 5000 });
+    await this.page.click(this.locators.Events);
+  }
+
+  async open_All_Entities_From_Settings(baseURL, Logger) {
+    Logger?.info?.('Action: open left panel Settings');
+    await this.navigate_To_Settings();
+
+    const expanded = await this.page.locator(this.locators.settingsCollapsePanelShown).count();
+    if (!expanded) {
+      await this.page.locator(this.locators.settingsSidebarLink).first().click({ force: true });
+    }
+
+    Logger?.info?.('Action: click left panel All entities');
+    await this.page.locator(this.locators.allEntitiesSidebarLink).first().click({ force: true });
+    const routed = await this.page.waitForURL(/\/entities(\?|$)/, { timeout: 7000 }).then(() => true).catch(() => false);
+    if (!routed) {
+      Logger?.info?.('Fallback: hard navigate to /entities');
+      await this.page.goto(`${baseURL}/entities`, { waitUntil: 'domcontentloaded' });
+    }
+    await expect(this.page).toHaveURL(/\/entities(\?|$)/);
+  }
+
+  async search_All_Entities(searchText) {
+    await this.fill_Text(this.locators.allEntitiesSearchInput, searchText);
+    await this.page.waitForTimeout(800);
+  }
+
+  async clear_All_Entities_Search() {
+    await this.fill_Text(this.locators.allEntitiesSearchInput, '');
+    await this.page.waitForTimeout(700);
+  }
+
+  async set_All_Entities_Deep_Search(enabled) {
+    const deepSearchInput = this.page.locator(this.locators.allEntitiesDeepSearchInput).first();
+    const deepSearchLabel = this.page.locator(this.locators.allEntitiesDeepSearchLabel).first();
+    const hasInput = (await deepSearchInput.count()) > 0;
+    const hasLabel = (await deepSearchLabel.count()) > 0;
+    if (!hasInput && !hasLabel) return false;
+
+    if (hasInput) {
+      if (enabled) {
+        await deepSearchInput.check({ force: true }).catch(async () => {
+          if (hasLabel) await deepSearchLabel.click({ force: true });
+        });
+      } else {
+        await deepSearchInput.uncheck({ force: true }).catch(async () => {
+          if (hasLabel) await deepSearchLabel.click({ force: true });
+        });
+      }
+    } else if (hasLabel) {
+      await deepSearchLabel.click({ force: true });
+    }
+    return true;
+  }
+
+  async assert_All_Entities_Landing_Controls() {
+    await customAssert('All entities page key controls should be visible', async () => {
+      await expect(this.page.locator(this.locators.allEntitiesSearchInput).first()).toBeVisible();
+      await expect(this.page.locator(this.locators.allEntitiesHeader).first()).toBeVisible();
+      await expect(this.page.locator(this.locators.allEntitiesTypesLabel).first()).toBeVisible();
+      await expect(this.page.locator(this.locators.allEntitiesTagsLabel).first()).toBeVisible();
+    });
+  }
+
+  async verify_All_Entities_Search_Flow() {
+    await this.set_All_Entities_Deep_Search(true);
+    await this.search_All_Entities('user');
+    await customAssert('URL should include valid search query', async () => {
+      await expect(this.page).toHaveURL(/\/entities.*q=user/);
+    });
+
+    await this.search_All_Entities('invalid_zzzz_12345');
+    await customAssert('URL should include invalid search query', async () => {
+      await expect(this.page).toHaveURL(/\/entities.*q=invalid_zzzz_12345/);
+    });
+
+    await this.clear_All_Entities_Search();
+    await this.set_All_Entities_Deep_Search(false);
+    await customAssert('Should remain on entities page after search reset', async () => {
+      await expect(this.page).toHaveURL(/\/entities(\?|$)/);
+    });
+  }
+
+  async verify_All_Entities_Type_Chip_Navigation(baseURL, Logger, typeCases) {
+    for (const tc of typeCases) {
+      Logger?.info?.(`Action: click ${tc.label} chip`);
+      const chip = this.page.locator(`button:has-text("${tc.label}"), a:has-text("${tc.label}")`).first();
+      if ((await chip.count()) === 0 && (tc.label === 'Users' || tc.label === 'Modules' || tc.label === 'Triggers')) {
+        const more = this.page.locator(this.locators.allEntitiesMoreToggle).first();
+        if ((await more.count()) > 0) await more.click({ force: true });
+      }
+
+      await chip.click({ force: true });
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.page.waitForTimeout(700);
+      await customAssert(`${tc.label} should navigate to expected URL`, async () => {
+        await expect(this.page).toHaveURL(tc.url);
+      });
+
+      if (tc.label !== 'Triggers') {
+        await this.page.goBack({ waitUntil: 'domcontentloaded' });
+        await this.page.waitForTimeout(700);
+      } else {
+        await this.page.goto(`${baseURL}/entities`, { waitUntil: 'domcontentloaded' });
+      }
+
+      await customAssert(`After ${tc.label}, should return to entities page`, async () => {
+        await expect(this.page).toHaveURL(/\/entities(\?|$)/);
+      });
+    }
+  }
+
+  async verify_All_Entities_Less_More_And_Tags() {
+    const more = this.page.locator(`${this.locators.allEntitiesMoreToggle}:visible`).first();
+    if ((await more.count()) > 0) {
+      await more.click({ force: true });
+      await this.page.waitForTimeout(700);
+      await expect(this.page.locator(this.locators.allEntitiesUsersChip).first()).toHaveCount(1);
+      await expect(this.page.locator(this.locators.allEntitiesModulesChip).first()).toHaveCount(1);
+    }
+
+    const tagButtons = this.page.locator(this.locators.allEntitiesTagChipButtons).filter({ hasText: /^(Aurora|e2e_tag_)/ });
+    const tagCount = await tagButtons.count();
+    expect(tagCount).toBeGreaterThan(0);
+    if (tagCount > 1) {
+      await tagButtons.nth(0).click({ force: true });
+      await this.page.waitForTimeout(600);
+      await tagButtons.nth(1).click({ force: true });
+      await this.page.waitForTimeout(600);
+    }
+    await expect(this.page).toHaveURL(/\/entities(\?|$)/);
+  }
+
+  async verify_All_Entities_User_Row_Actions(baseURL) {
+    await this.page.goto(`${baseURL}/entities?extended=on&tables=on&q=users`, { waitUntil: 'domcontentloaded' });
+    await expect(this.page).toHaveURL(/\/entities\?extended=on&tables=on&q=users/);
+
+    const usersRow = this.page.locator(this.locators.allEntitiesTableRows).filter({
+      has: this.page.getByRole('link', { name: 'users' }).first()
+    }).first();
+    await expect(usersRow).toBeVisible({ timeout: 30000 });
+
+    const actionsBtn = usersRow.locator(this.locators.allEntitiesActionsButtonInRow).first();
+    await actionsBtn.scrollIntoViewIfNeeded();
+    await this.page.keyboard.press('Escape').catch(async () => { });
+    await actionsBtn.click({ force: true });
+    await this.page.waitForTimeout(700);
+
+    await expect(this.page.locator(this.locators.allEntitiesActionsMenu)).toBeVisible();
+    await expect(this.page.locator(this.locators.allEntitiesActionRecalculate)).toBeVisible();
+    await expect(this.page.locator(this.locators.allEntitiesActionDeleteRows)).toBeVisible();
+    await expect(this.page.locator(this.locators.allEntitiesActionRegistryEditor)).toBeVisible();
+  }
+
+  async create_Table_From_All_Entities(tableName) {
+    const createTableBtn = this.page.locator(this.locators.allEntitiesCreateTable).first();
+    await createTableBtn.scrollIntoViewIfNeeded();
+    await createTableBtn.click({ force: true });
+    await this.page.waitForLoadState('domcontentloaded');
+    await this.page.waitForTimeout(700);
+    await expect(this.page).toHaveURL(/\/table\/new\/?(\?|$)/);
+    await this.fill_Text(this.locators.InputName, tableName);
+    await this.submit();
+    await this.page.waitForLoadState('domcontentloaded');
+  }
+
+  async create_View_From_All_Entities(viewName, description = 'e2e view from all entities') {
+    const createViewBtn = this.page.locator(this.locators.allEntitiesCreateView).first();
+    await createViewBtn.scrollIntoViewIfNeeded();
+    await createViewBtn.click({ force: true });
+    await this.page.waitForLoadState('domcontentloaded');
+    await this.page.waitForTimeout(700);
+    await expect(this.page).toHaveURL(/\/viewedit\/new(\?|$)/);
+
+    await this.fill_Text(this.locators.InputName, viewName);
+    if ((await this.page.locator(this.locators.discriptiontext).count()) > 0) {
+      await this.fill_Text(this.locators.discriptiontext, description);
+    }
+    if ((await this.page.locator(this.locators.viewtabledropdown).count()) > 0) {
+      await this.page.locator(this.locators.viewtabledropdown).selectOption({ label: 'users' }).catch(async () => {
+        await this.page.locator(this.locators.viewtabledropdown).selectOption({ index: 0 });
+      });
+    }
+    await this.submit();
+    await this.page.waitForLoadState('domcontentloaded');
+  }
+
+  async create_Page_From_All_Entities(pageName) {
+    const createPageBtn = this.page.locator(this.locators.allEntitiesCreatePage).first();
+    await createPageBtn.scrollIntoViewIfNeeded();
+    await createPageBtn.click({ force: true });
+    await this.page.waitForLoadState('domcontentloaded');
+    await this.page.waitForTimeout(700);
+    await expect(this.page).toHaveURL(/\/pageedit\/new(\?|$)/);
+
+    const pageNameInput = this.page.locator(this.locators.inputpagename).first();
+    if ((await pageNameInput.count()) > 0) await this.fill_Text(this.locators.inputpagename, pageName);
+    else await this.fill_Text(this.locators.InputName, pageName);
+
+    await this.submit();
+    await this.page.waitForLoadState('domcontentloaded');
+  }
+
+  async create_Trigger_From_All_Entities(triggerName) {
+    const createTriggerBtn = this.page.locator(this.locators.allEntitiesCreateTrigger).first();
+    await createTriggerBtn.scrollIntoViewIfNeeded();
+    await createTriggerBtn.click({ force: true });
+    await this.page.waitForLoadState('domcontentloaded');
+    await this.page.waitForTimeout(700);
+    await expect(this.page).toHaveURL(/\/actions\/new(\?|$)/);
+
+    await this.fill_Text(this.locators.InputName, triggerName);
+    if ((await this.page.locator(this.locators.whentrigger).count()) > 0) {
+      await this.page.locator(this.locators.whentrigger).selectOption({ index: 1 }).catch(async () => { });
+    }
+    if ((await this.page.locator(this.locators.inputtableid).count()) > 0) {
+      await this.page.locator(this.locators.inputtableid).selectOption({ index: 1 }).catch(async () => { });
+    }
+    if ((await this.page.locator(this.locators.inputaction).count()) > 0) {
+      await this.page.locator(this.locators.inputaction).selectOption({ index: 1 }).catch(async () => { });
+    }
+    await this.submit();
+    await this.page.waitForLoadState('domcontentloaded');
+  }
+
+  async verify_Entity_Is_Visible_In_List(listPath, entityName, assertionMessage = 'Entity should be visible in list') {
+    await this.page.goto(listPath, { waitUntil: 'domcontentloaded' });
+    await customAssert(assertionMessage, async () => {
+      await expect(this.page.getByText(entityName).first()).toBeVisible({ timeout: 30000 });
+    });
+  }
+
+  async verify_Entity_Is_Searchable_In_All_Entities(baseURL, entityName, Logger) {
+    await this.open_All_Entities_From_Settings(baseURL, Logger);
+    await this.search_All_Entities(entityName);
+    await customAssert('Entity should be searchable in All entities', async () => {
+      await expect(this.page.getByText(entityName).first()).toBeVisible({ timeout: 30000 });
+    });
+  }
+
+  async open_Views_From_All_Entities() {
+    await this.page.locator(this.locators.allEntitiesViewsChip).first().click({ force: true });
+    await this.page.waitForLoadState('domcontentloaded');
+  }
+
+  async assert_Views_List_Loaded() {
+    await expect(this.page).toHaveURL(/\/viewedit(\?|$)/);
+    await expect(this.page.locator(this.locators.primaryTable).first()).toBeVisible({ timeout: 30000 });
+  }
+
+  async takeDebugScreenshot(name, Logger, debugDir = 'test-results') {
+    if (!fs.existsSync(debugDir)) fs.mkdirSync(debugDir, { recursive: true });
+    const path = `${debugDir}/${name}_${Date.now()}.png`;
+    await this.page.screenshot({ path, fullPage: true });
+    Logger?.info?.(`Debug screenshot saved: ${path}`);
+    return path;
   }
 
 }
