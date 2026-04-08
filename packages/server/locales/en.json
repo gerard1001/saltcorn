@@ -2055,5 +2055,9 @@
 	"All entities list": "All entities list",
 	"Warning: any user given development permission can potentially introduce malicious code into the application.": "Warning: any user given development permission can potentially introduce malicious code into the application.",
 	"Edit users": "Edit users",
-	"Minimum role to access the user editing interface": "Minimum role to access the user editing interface"
+	"Minimum role to access the user editing interface": "Minimum role to access the user editing interface",
+	"Edit with AI": "Edit with AI",
+	"Describe what the code should do. The existing code will be used as context.": "Describe what the code should do. The existing code will be used as context.",
+	"Enter your prompt...": "Enter your prompt...",
+	"Generating...": "Generating..."
 }

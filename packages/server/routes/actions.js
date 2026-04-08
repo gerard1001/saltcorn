@@ -446,7 +446,9 @@ const triggerForm = async (req, trigger) => {
             "Optional JavaScript expression to determine if the trigger should run."
           ) +
           " " +
-          req.__("On updates, use <code>row.old_row</code> to access values before the update."),
+          req.__(
+            "On updates, use <code>row.old_row</code> to access values before the update."
+          ),
         parent_field: "configuration",
         showIf: {
           when_trigger: [...table_triggers, ...additional_triggers_with_onlyif],
@@ -1404,7 +1406,7 @@ router.get(
                     id: "jsCopilotPrompt",
                     class: "form-control",
                     rows: 3,
-                    placeholder: req.__("Enter your prompte..."),
+                    placeholder: req.__("Enter your prompt..."),
                   }),
                   div({
                     id: "jsCopilotError",
