@@ -411,6 +411,7 @@ const getAllEntities = async () => {
       type: "table",
       name: t.name,
       id: t.id,
+      updated_at: t.updated_at ? new Date(t.updated_at).toISOString() : null,
       viewLink: `/table/${t.id}`,
       editLink: `/table/${t.id}`,
       metadata: {
@@ -435,6 +436,7 @@ const getAllEntities = async () => {
       type: "view",
       name: v.name,
       id: v.id,
+      updated_at: v.updated_at ? new Date(v.updated_at).toISOString() : null,
       viewLink: `/view/${encodeURIComponent(v.name)}`,
       editLink: v.singleton
         ? null
@@ -456,6 +458,7 @@ const getAllEntities = async () => {
       type: "page",
       name: p.name,
       id: p.id,
+      updated_at: p.updated_at ? new Date(p.updated_at).toISOString() : null,
       viewLink: `/page/${encodeURIComponent(p.name)}`,
       editLink: `/pageedit/edit/${encodeURIComponent(p.name)}`,
       metadata: {
@@ -471,6 +474,7 @@ const getAllEntities = async () => {
       type: "trigger",
       name: tr.name,
       id: tr.id,
+      updated_at: tr.updated_at ? new Date(tr.updated_at).toISOString() : null,
       viewLink: `/actions/configure/${tr.id}`,
       editLink: `/actions/configure/${tr.id}`,
       metadata: {
@@ -1242,6 +1246,9 @@ router.get(
             typeof minRole !== "undefined" ? String(minRole) : "",
           "data-external":
             typeof external !== "undefined" ? String(external) : "",
+          ...(entity.updated_at
+            ? { "data-updated-at": entity.updated_at }
+            : {}),
         },
         td(entityTypeBadge(entity.type)),
         td(
@@ -1277,7 +1284,14 @@ router.get(
           class: "table table-sm table-hover align-middle",
         },
         thead(headerRow),
-        tbody(initially_hidden ? { style: { opacity: "0" } } : {}, ...bodyRows)
+        tbody({ id: "entities-recent-body", class: "d-none" }),
+        tbody(
+          {
+            id: "entities-main-body",
+            ...(initially_hidden ? { style: { opacity: "0" } } : {}),
+          },
+          ...bodyRows
+        )
       )
     );
 
@@ -1318,6 +1332,26 @@ router.get(
         }
         #entity-less-btn:not(.d-none) {
           max-width: 80px;
+        }
+        .entity-section-header-row td {
+          padding: 3px 8px;
+          font-size: 0.7rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: var(--bs-secondary-color, #6c757d);
+          background: var(--bs-secondary-bg, #f8f9fa);
+          border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+          user-select: none;
+        }
+        .entity-row-recent td { opacity: 0.88; }
+        @keyframes entity-row-flash {
+          0%   { background-color: var(--bs-warning-bg-subtle, #fff3cd); }
+          100% { background-color: var(--bs-table-bg, transparent); }
+        }
+        #entities-list .entity-row-flash > td,
+        #entities-list .entity-row-flash > th {
+          animation: entity-row-flash 2.5s ease-out;
         }
       </style>
     `;
@@ -1360,7 +1394,7 @@ router.get(
         window.TXT_MOBILE = ${JSON.stringify(req.__("Mobile"))};
         window.ENTITY_DEEP_SEARCH = null;
 
-        document.querySelector("#entities-list tbody").style.opacity = "1";
+        document.getElementById("entities-main-body").style.opacity = "1";
         entitiesListInit({
           LEGACY_LINK_META: ${JSON.stringify(legacyLinkMeta)},
           TAGS_BY_ID: ${JSON.stringify(Object.fromEntries(tags.map((t) => [t.id, t.name])))},
@@ -1637,7 +1671,6 @@ router.post(
           const view =
             (id !== null ? View.findOne({ id }) : null) ||
             View.findOne({ name: item?.name });
-          console.log({ view });
           if (!view) throw new Error("View not found");
           if (view.id && typeof view.id !== "undefined") {
             await View.update({ min_role: roleIdNum }, id);

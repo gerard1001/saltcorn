@@ -1740,9 +1740,8 @@ function entitiesListInit(config) {
   const bulkRoleWriteGroup = document.getElementById(
     "entity-bulk-role-write-group"
   );
-  const entitiesTbody = entitiesList
-    ? entitiesList.querySelector("tbody")
-    : null;
+  const entitiesTbody = document.getElementById("entities-main-body");
+  const recentTbody = document.getElementById("entities-recent-body");
 
   // Type constants
   const BASE_TYPES = ["table", "view", "page", "trigger"];
@@ -1791,7 +1790,7 @@ function entitiesListInit(config) {
 
   const getVisibleRows = () =>
     Array.from(document.querySelectorAll(".entity-row")).filter(
-      (row) => row.style.display !== "none"
+      (row) => row.style.display !== "none" && !row.dataset.recentClone
     );
 
   const getSelectableVisibleRows = () =>
@@ -2436,6 +2435,124 @@ function entitiesListInit(config) {
     return tr;
   };
 
+  // Recently edited
+
+  const relativeTime = (isoStr) => {
+    if (!isoStr) return "";
+    const diff = Date.now() - new Date(isoStr).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return m + "m ago";
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + "h ago";
+    const d = Math.floor(h / 24);
+    if (d < 30) return d + "d ago";
+    const mo = Math.floor(d / 30);
+    return mo + "mo ago";
+  };
+
+  const RECENT_COUNT = 5;
+
+  const updateRecentlyEdited = () => {
+    if (!recentTbody) return;
+
+    // Only show when there is no active search
+    const hasSearch = searchInput && searchInput.value.trim().length > 0;
+
+    // Collect visible main rows that have an updated_at timestamp
+    const candidates = Array.from(
+      entitiesTbody ? entitiesTbody.querySelectorAll(".entity-row") : []
+    ).filter(
+      (r) => r.style.display !== "none" && r.dataset.updatedAt
+    );
+
+    if (hasSearch || candidates.length === 0) {
+      recentTbody.classList.add("d-none");
+      return;
+    }
+
+    // Sort by updated_at descending, take top N
+    candidates.sort(
+      (a, b) => new Date(b.dataset.updatedAt) - new Date(a.dataset.updatedAt)
+    );
+    const recent = candidates.slice(0, RECENT_COUNT);
+
+    // Clear previous clones (keep the section header rows)
+    Array.from(recentTbody.querySelectorAll(".entity-row")).forEach((r) =>
+      r.remove()
+    );
+    Array.from(recentTbody.querySelectorAll(".entity-section-header-row")).forEach(
+      (r) => r.remove()
+    );
+
+    // Build section header row for recent
+    const recentHeaderTr = document.createElement("tr");
+    recentHeaderTr.className = "entity-section-header-row";
+    const recentHeaderTd = document.createElement("td");
+    recentHeaderTd.colSpan = 7;
+    recentHeaderTd.textContent = "Recently edited";
+    recentHeaderTr.appendChild(recentHeaderTd);
+    recentTbody.appendChild(recentHeaderTr);
+
+    // Insert clones
+    recent.forEach((originalRow) => {
+      const clone = originalRow.cloneNode(true);
+      clone.dataset.recentClone = "true";
+      clone.classList.add("entity-row-recent");
+
+      // Replace actions cell with relative-time badge to avoid duplicate IDs
+      const tds = clone.querySelectorAll("td");
+      const actionsTd = tds[tds.length - 1];
+      if (actionsTd) {
+        actionsTd.innerHTML = "";
+        const badge = document.createElement("span");
+        badge.className = "badge bg-secondary-subtle text-secondary fw-normal";
+        badge.textContent = relativeTime(originalRow.dataset.updatedAt);
+        actionsTd.appendChild(badge);
+      }
+      // Remove add-tag dropdown from tags cell to avoid duplicate IDs
+      const tagsTd = tds[tds.length - 2];
+      if (tagsTd) {
+        const dropdown = tagsTd.querySelector(".dropdown");
+        if (dropdown) dropdown.remove();
+      }
+
+      // On row click (not a link/button), scroll to + flash the original
+      clone.addEventListener("click", (e) => {
+        if (e.target.closest("a, button, input, select, textarea, label")) return;
+        const original = entitiesTbody
+          ? entitiesTbody.querySelector(
+              '.entity-row[data-entity-key="' +
+                originalRow.dataset.entityKey.replace(/"/g, '\\"') +
+                '"]'
+            )
+          : null;
+        if (original) {
+          original.scrollIntoView({ behavior: "smooth", block: "center" });
+          original.classList.remove("entity-row-flash");
+          void original.offsetWidth; // reflow to restart animation
+          original.classList.add("entity-row-flash");
+          setTimeout(() => original.classList.remove("entity-row-flash"), 1500);
+        }
+      });
+
+      recentTbody.appendChild(clone);
+    });
+
+    // Build "All entities" separator at bottom of recent section
+    const allHeaderTr = document.createElement("tr");
+    allHeaderTr.className = "entity-section-header-row";
+    const allHeaderTd = document.createElement("td");
+    allHeaderTd.colSpan = 7;
+    const visibleTotal = candidates.length;
+    allHeaderTd.textContent =
+      "All entities";
+    allHeaderTr.appendChild(allHeaderTd);
+    recentTbody.appendChild(allHeaderTr);
+
+    recentTbody.classList.remove("d-none");
+  };
+
   // --- Main filter function ---
 
   function filterEntities() {
@@ -2451,6 +2568,9 @@ function entitiesListInit(config) {
     }
 
     entityRows.forEach((row) => {
+      // Skip recently-edited clones, they are managed by updateRecentlyEdited()
+      if (row.dataset.recentClone) return;
+
       const entityType = row.dataset.entityType;
       const key = row.dataset.entityKey;
       const deepText =
@@ -2500,6 +2620,7 @@ function entitiesListInit(config) {
     updateOnDoneRedirectTargets();
     updateLegacyButton();
     updateSelectionUI();
+    updateRecentlyEdited();
   }
 
   // --- Bulk action helpers ---
