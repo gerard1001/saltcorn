@@ -669,10 +669,10 @@ const tableActionsDropdown = (entity, req, user_can_edit_tables) => {
 };
 
 /**
- * Main entities list page
+ * Deep search index endpoint. loaded lazily on check
  */
 router.get(
-  "/",
+  "/deep-search-index",
   isAdminOrHasConfigMinRole("min_role_edit_views"),
   error_catcher(async (req, res) => {
     const entities = await getAllEntities();
@@ -719,6 +719,18 @@ router.get(
         );
       }
     }
+    res.json(deepSearchIndex);
+  })
+);
+
+/**
+ * Main entities list page
+ */
+router.get(
+  "/",
+  isAdminOrHasConfigMinRole("min_role_edit_views"),
+  error_catcher(async (req, res) => {
+    const entities = await getAllEntities();
     // fetch roles and tags
     const roles = await User.get_roles();
     const tags = await Tag.find();
@@ -1099,11 +1111,6 @@ router.get(
         entity.type === "view" ? (entity.id ?? entity.name) : entity.id
       }`;
       const tagIds = tagsByEntityKey.get(key) || [];
-      const deepSearchable =
-        deepSearchIndex[key] ||
-        (entity.type === "view"
-          ? deepSearchIndex[`${entity.type}:${entity.name}`]
-          : undefined);
       const tagBadges = tagIds.map((tid) =>
         a(
           {
@@ -1625,7 +1632,10 @@ router.get(
           const q = params.get('q') || '';
           if (q) searchInput.value = q;
           const deep = params.get('deep') === 'on';
-          if (deep && deepSearchToggle) deepSearchToggle.checked = true;
+          if (deep && deepSearchToggle) {
+            deepSearchToggle.checked = true;
+            deepSearchToggle.dispatchEvent(new Event("change"));
+          }
           const shouldExpandExtended =
             params.get('extended') === 'on' ||
             EXTENDED_TYPES.some((t) => params.get(t + 's') === 'on');
@@ -1749,7 +1759,24 @@ router.get(
           }
         });
         if (deepSearchToggle) {
-          deepSearchToggle.addEventListener("change", filterEntities);
+          let deepSearchLoading = false;
+          deepSearchToggle.addEventListener("change", function () {
+            if (this.checked && !window.ENTITY_DEEP_SEARCH && !deepSearchLoading) {
+              deepSearchLoading = true;
+              fetch("/entities/deep-search-index")
+                .then((r) => r.json())
+                .then((data) => {
+                  window.ENTITY_DEEP_SEARCH = data;
+                  deepSearchLoading = false;
+                  filterEntities();
+                })
+                .catch(() => {
+                  deepSearchLoading = false;
+                });
+            } else {
+              filterEntities();
+            }
+          });
         }
 
         // Filter button handlers
@@ -1829,7 +1856,7 @@ router.get(
             if (deepSearchToggle && e.code === "KeyS") {
               e.preventDefault();
               deepSearchToggle.checked = !deepSearchToggle.checked;
-              filterEntities();
+              deepSearchToggle.dispatchEvent(new Event("change"));
               if (searchInput && typeof searchInput.focus === 'function') {
                 searchInput.focus({ preventScroll: true });
               }
@@ -2280,7 +2307,7 @@ router.get(
         window.TXT_INFO = ${JSON.stringify(req.__("Info"))};
         window.TXT_AUTH = ${JSON.stringify(req.__("Authentication"))};
         window.TXT_MOBILE = ${JSON.stringify(req.__("Mobile"))};
-        window.ENTITY_DEEP_SEARCH = ${JSON.stringify(deepSearchIndex)};
+        window.ENTITY_DEEP_SEARCH = null;
 
         document.querySelector("#entities-list tbody").style.opacity = "1";
 
