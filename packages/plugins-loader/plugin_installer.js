@@ -11,7 +11,8 @@ const {
 } = require("./download_utils");
 const { getState } = require("@saltcorn/data/db/state");
 const Plugin = require("@saltcorn/data/models/plugin");
-const { rm, rename, cp, readFile, readdir } = require("fs").promises;
+const { rm, rename, cp, readFile, readdir, readlink, unlink } =
+  require("fs").promises;
 const envPaths = require("env-paths");
 const semver = require("semver");
 const path = require("path");
@@ -308,8 +309,19 @@ class PluginInstaller {
       const symLinkSrc = (await isGitCheckout())
         ? join(__dirname, "..", "..", "node_modules")
         : join(dirname(require.resolve("@saltcorn/cli")), "..", "node_modules");
-      if (!(await pathExists(symLinkDst)))
+      if (await pathExists(symLinkDst)) {
+        const currentTarget = await readlink(symLinkDst).catch(() => null);
+        if (currentTarget !== symLinkSrc) {
+          await unlink(symLinkDst);
+          await symlink(
+            symLinkSrc,
+            symLinkDst,
+            !isWindows ? "dir" : "junction"
+          );
+        }
+      } else {
         await symlink(symLinkSrc, symLinkDst, !isWindows ? "dir" : "junction");
+      }
     };
     for (const folder of ["plugins_folder", "git_plugins"])
       await ensureFn(folder);
