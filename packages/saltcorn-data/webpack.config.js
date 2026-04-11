@@ -35,11 +35,6 @@ const saltcornMocks = {
     "saltcorn",
     "plugins-loader-plugin-installer"
   ),
-  "@saltcorn/plugins-loader/stable_versioning": join(
-    mocksDir,
-    "saltcorn",
-    "plugins-loader-stable-versioning"
-  ),
   "@saltcorn/admin-models/models/tenant": join(
     mocksDir,
     "saltcorn",
