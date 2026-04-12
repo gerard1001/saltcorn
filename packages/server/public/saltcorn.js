@@ -1790,7 +1790,7 @@ function entitiesListInit(config) {
 
   const getVisibleRows = () =>
     Array.from(document.querySelectorAll(".entity-row")).filter(
-      (row) => row.style.display !== "none" && !row.dataset.recentClone
+      (row) => row.style.display !== "none"
     );
 
   const getSelectableVisibleRows = () =>
@@ -2167,7 +2167,7 @@ function entitiesListInit(config) {
     try {
       const extendedEntities = await loadExtendedEntities(true);
       window.extendedEntities = extendedEntities;
-      const tbody = document.querySelector("#entities-list tbody");
+      const tbody = entitiesTbody;
       renderExtendedEntityRows(extendedEntities, tbody);
       hasLoadedAllModules = true;
       updated = true;
@@ -2183,7 +2183,7 @@ function entitiesListInit(config) {
     const moreBtn = document.getElementById("entity-more-btn");
     const lessBtn = document.getElementById("entity-less-btn");
     const extendedButtons = document.querySelectorAll(".entity-extended-btn");
-    const tbody = document.querySelector("#entities-list tbody");
+    const tbody = entitiesTbody;
 
     if (expand) {
       if (isExtendedExpanded) return;
@@ -2462,9 +2462,7 @@ function entitiesListInit(config) {
     // Collect visible main rows that have an updated_at timestamp
     const candidates = Array.from(
       entitiesTbody ? entitiesTbody.querySelectorAll(".entity-row") : []
-    ).filter(
-      (r) => r.style.display !== "none" && r.dataset.updatedAt
-    );
+    ).filter((r) => r.style.display !== "none" && r.dataset.updatedAt);
 
     if (hasSearch || candidates.length === 0) {
       recentTbody.classList.add("d-none");
@@ -2478,12 +2476,12 @@ function entitiesListInit(config) {
     const recent = candidates.slice(0, RECENT_COUNT);
 
     // Clear previous clones (keep the section header rows)
-    Array.from(recentTbody.querySelectorAll(".entity-row")).forEach((r) =>
+    Array.from(recentTbody.querySelectorAll(".entity-row-clone")).forEach((r) =>
       r.remove()
     );
-    Array.from(recentTbody.querySelectorAll(".entity-section-header-row")).forEach(
-      (r) => r.remove()
-    );
+    Array.from(
+      recentTbody.querySelectorAll(".entity-section-header-row")
+    ).forEach((r) => r.remove());
 
     // Build section header row for recent
     const recentHeaderTr = document.createElement("tr");
@@ -2498,7 +2496,8 @@ function entitiesListInit(config) {
     recent.forEach((originalRow) => {
       const clone = originalRow.cloneNode(true);
       clone.dataset.recentClone = "true";
-      clone.classList.add("entity-row-recent");
+      clone.classList.remove("entity-row");
+      clone.classList.add("entity-row-clone", "entity-row-recent");
 
       // Replace actions cell with relative-time badge to avoid duplicate IDs
       const tds = clone.querySelectorAll("td");
@@ -2519,7 +2518,8 @@ function entitiesListInit(config) {
 
       // On row click (not a link/button), scroll to + flash the original
       clone.addEventListener("click", (e) => {
-        if (e.target.closest("a, button, input, select, textarea, label")) return;
+        if (e.target.closest("a, button, input, select, textarea, label"))
+          return;
         const original = entitiesTbody
           ? entitiesTbody.querySelector(
               '.entity-row[data-entity-key="' +
@@ -2544,9 +2544,7 @@ function entitiesListInit(config) {
     allHeaderTr.className = "entity-section-header-row";
     const allHeaderTd = document.createElement("td");
     allHeaderTd.colSpan = 7;
-    const visibleTotal = candidates.length;
-    allHeaderTd.textContent =
-      "All entities";
+    allHeaderTd.textContent = "All entities";
     allHeaderTr.appendChild(allHeaderTd);
     recentTbody.appendChild(allHeaderTr);
 
@@ -2568,9 +2566,6 @@ function entitiesListInit(config) {
     }
 
     entityRows.forEach((row) => {
-      // Skip recently-edited clones, they are managed by updateRecentlyEdited()
-      if (row.dataset.recentClone) return;
-
       const entityType = row.dataset.entityType;
       const key = row.dataset.entityKey;
       const deepText =
@@ -2668,7 +2663,7 @@ function entitiesListInit(config) {
 
   const refreshExtendedEntitiesAfterDelete = async () => {
     if (!isExtendedExpanded) return;
-    const tbody = document.querySelector("#entities-list tbody");
+    const tbody = entitiesTbody;
     if (!tbody) return;
     try {
       const extendedEntities = await loadExtendedEntities(
