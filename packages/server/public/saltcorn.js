@@ -2465,6 +2465,7 @@ function entitiesListInit(config) {
     ).filter((r) => r.style.display !== "none" && r.dataset.updatedAt);
 
     if (hasSearch || candidates.length === 0) {
+      Array.from(recentTbody.querySelectorAll(".entity-row-clone, .entity-section-header-row")).forEach((r) => r.remove());
       recentTbody.classList.add("d-none");
       return;
     }
