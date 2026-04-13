@@ -2,7 +2,15 @@
 
 ## 1.6.0 - In development
 
+* Entities list shows most recently edited entities
+
+* `old_row` can now be accessed in Update trigger only if.. formula
+
+* If List column show if true formula does not access fields (e.g. based only on `user`) the whole column is now shown or hidden.
+
 * User roles below admin can now be given permission to edit users with the same user interface as that used by admin (at /useradmin URLs).
+
+* If the copilot is installed, it can now help write or change run_js_code scripts ("Edit with AI" button)
 
 * In the `relative` fieldview for date fields, the full time is shown when on hover (using the title attribute)
 
