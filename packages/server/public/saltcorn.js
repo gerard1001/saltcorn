@@ -2465,7 +2465,11 @@ function entitiesListInit(config) {
     ).filter((r) => r.style.display !== "none" && r.dataset.updatedAt);
 
     if (hasSearch || candidates.length === 0) {
-      Array.from(recentTbody.querySelectorAll(".entity-row-clone, .entity-section-header-row")).forEach((r) => r.remove());
+      Array.from(
+        recentTbody.querySelectorAll(
+          ".entity-row-clone, .entity-section-header-row"
+        )
+      ).forEach((r) => r.remove());
       recentTbody.classList.add("d-none");
       return;
     }
@@ -2500,16 +2504,25 @@ function entitiesListInit(config) {
       clone.classList.remove("entity-row");
       clone.classList.add("entity-row-clone", "entity-row-recent");
 
-      // Replace actions cell with relative-time badge to avoid duplicate IDs
       const tds = clone.querySelectorAll("td");
-      const actionsTd = tds[tds.length - 1];
-      if (actionsTd) {
-        actionsTd.innerHTML = "";
-        const badge = document.createElement("span");
-        badge.className = "badge bg-secondary-subtle text-secondary fw-normal";
-        badge.textContent = relativeTime(originalRow.dataset.updatedAt);
-        actionsTd.appendChild(badge);
+
+      const detailsTd = tds[3];
+      if (detailsTd) {
+        const timeBadge = document.createElement("span");
+        timeBadge.className =
+          "badge bg-secondary-subtle text-secondary fw-normal me-1 ms-1";
+        timeBadge.textContent = relativeTime(originalRow.dataset.updatedAt);
+        // detailsContent wraps badges in a div; insert inside it so they stay inline
+        const detailsDiv = detailsTd.querySelector("div");
+        if (detailsDiv) {
+          // detailsDiv.insertBefore(timeBadge, detailsDiv.firstChild);
+          detailsDiv.lastChild.after(timeBadge);
+        } else {
+          // detailsTd.insertBefore(timeBadge, detailsTd.firstChild);
+          detailsTd.appendChild(timeBadge);
+        }
       }
+
       // Remove add-tag dropdown from tags cell to avoid duplicate IDs
       const tagsTd = tds[tds.length - 2];
       if (tagsTd) {
