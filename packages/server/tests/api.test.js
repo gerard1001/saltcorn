@@ -1007,3 +1007,147 @@ describe("API upload-files", () => {
       .expect(respondJsonWith(400, (resp) => resp.error === "No file found"));
   });
 });
+
+describe("API cross-table sub-select access control", () => {
+  it("should not allow probing restricted tables via sub-select query syntax", async () => {
+    const app = await getApp({ disableCsrf: true });
+    // The patients table has min_role_read=40 (staff).
+    // A public user should not be able to learn anything about patients data.
+    // The books table is public (min_role_read=100).
+    // The sub-select syntax (e.g. ?id.patients->name=Kirk) constructs:
+    //   WHERE id IN (SELECT id FROM patients WHERE name ILIKE '%Kirk%')
+    // This leaks whether a patient named "Kirk" exists by observing
+    // whether any books are returned.
+    const patients = Table.findOne({ name: "patients" });
+    expect(patients.min_role_read).toBe(40);
+
+    // Query WITH a name that exists in patients ("Kirk Douglas", id=1)
+    const resp1 = await request(app)
+      .get("/api/books/?id.patients->name=Kirk")
+      .expect(200);
+
+    // Query with a name that does NOT exist in patients
+    const resp2 = await request(app)
+      .get("/api/books/?id.patients->name=ZZZNONEXISTENT")
+      .expect(200);
+
+    // If the sub-select is allowed, resp1 returns books (because patient
+    // "Kirk Douglas" has id=1 which matches book id=1) while resp2
+    // returns nothing. The difference reveals that "Kirk" exists in the
+    // restricted patients table.
+    //
+    // The secure behavior is that both queries return the same results
+    // (the sub-select against a restricted table is ignored or blocked),
+    // OR the query with the sub-select is rejected entirely.
+    const rows1 = resp1.body.success || [];
+    const rows2 = resp2.body.success || [];
+    expect(rows1.length).toBe(rows2.length);
+  });
+
+  it("should not allow probing restricted tables via or parameter with inSelect", async () => {
+    const app = await getApp({ disableCsrf: true });
+    // The patients table has min_role_read=40 (staff).
+    // The books table is public (min_role_read=100).
+    //
+    // The 'or' query parameter is passed directly through stateFieldsToWhere
+    // into the db where-clause without access control checks. An attacker
+    // can embed an inSelect subquery in 'or' to probe restricted tables:
+    //   ?or[0][id][inSelect][table]=patients&or[0][id][inSelect][field]=favbook
+    //    &or[0][id][inSelect][where][name]=Kirk Douglas
+    // This generates: WHERE (id IN (SELECT favbook FROM patients WHERE name='Kirk Douglas'))
+    // By observing which books are returned, the attacker can determine
+    // whether a patient with a given name exists — leaking data from the
+    // restricted patients table.
+    const patients = Table.findOne({ name: "patients" });
+    expect(patients.min_role_read).toBe(40);
+
+    // Kirk Douglas exists in patients with favbook=1 (Herman Melville)
+    const resp1 = await request(app)
+      .get("/api/books/")
+      .query({
+        "or[0][id][inSelect][table]": "patients",
+        "or[0][id][inSelect][field]": "favbook",
+        "or[0][id][inSelect][where][name]": "Kirk Douglas",
+      })
+      .expect(200);
+
+    // Non-existent patient
+    const resp2 = await request(app)
+      .get("/api/books/")
+      .query({
+        "or[0][id][inSelect][table]": "patients",
+        "or[0][id][inSelect][field]": "favbook",
+        "or[0][id][inSelect][where][name]": "ZZZNONEXISTENT",
+      })
+      .expect(200);
+
+    // If the or+inSelect bypass works, resp1 returns only book id=1
+    // (Kirk Douglas's favbook) while resp2 returns nothing.
+    // Secure behavior: both return the same results (all books or error).
+    const rows1 = resp1.body.success || [];
+    const rows2 = resp2.body.success || [];
+    expect(rows1.length).toBe(rows2.length);
+  });
+
+  it("should not allow probing restricted tables via field object with inSelect", async () => {
+    const app = await getApp({ disableCsrf: true });
+    // When a field value is an object, stateFieldsToWhere passes it through
+    // directly. An attacker can embed inSelect in a known field name:
+    //   ?id[inSelect][table]=patients&id[inSelect][field]=favbook&...
+    const patients = Table.findOne({ name: "patients" });
+    expect(patients.min_role_read).toBe(40);
+
+    const resp1 = await request(app)
+      .get("/api/books/")
+      .query({
+        "id[inSelect][table]": "patients",
+        "id[inSelect][field]": "favbook",
+        "id[inSelect][where][name]": "Kirk Douglas",
+      })
+      .expect(200);
+
+    const resp2 = await request(app)
+      .get("/api/books/")
+      .query({
+        "id[inSelect][table]": "patients",
+        "id[inSelect][field]": "favbook",
+        "id[inSelect][where][name]": "ZZZNONEXISTENT",
+      })
+      .expect(200);
+
+    const rows1 = resp1.body.success || [];
+    const rows2 = resp2.body.success || [];
+    expect(rows1.length).toBe(rows2.length);
+  });
+
+  it("should not allow probing restricted tables via _not_ prefix with inSelect", async () => {
+    const app = await getApp({ disableCsrf: true });
+    // The _not_ prefix passes user values into qstate.not[field].
+    // An attacker can embed inSelect to leak data:
+    //   ?_not_id[inSelect][table]=patients&_not_id[inSelect][field]=favbook&...
+    const patients = Table.findOne({ name: "patients" });
+    expect(patients.min_role_read).toBe(40);
+
+    const resp1 = await request(app)
+      .get("/api/books/")
+      .query({
+        "_not_id[inSelect][table]": "patients",
+        "_not_id[inSelect][field]": "favbook",
+        "_not_id[inSelect][where][name]": "Kirk Douglas",
+      })
+      .expect(200);
+
+    const resp2 = await request(app)
+      .get("/api/books/")
+      .query({
+        "_not_id[inSelect][table]": "patients",
+        "_not_id[inSelect][field]": "favbook",
+        "_not_id[inSelect][where][name]": "ZZZNONEXISTENT",
+      })
+      .expect(200);
+
+    const rows1 = resp1.body.success || [];
+    const rows2 = resp2.body.success || [];
+    expect(rows1.length).toBe(rows2.length);
+  });
+});

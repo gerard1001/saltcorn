@@ -5,6 +5,10 @@ const { getState } = require("@saltcorn/data/db/state");
 const Table = require("@saltcorn/data/models/table");
 const File = require("@saltcorn/data/models/file");
 const { getSafeSaltcornCmd } = require("@saltcorn/data/utils");
+const {
+  freeVariables,
+  add_free_variables_to_joinfields,
+} = require("@saltcorn/data/models/expression");
 const { spawn, spawnSync } = require("child_process");
 const path = require("path");
 const fs = require("fs").promises;
@@ -24,6 +28,34 @@ router.get(
     }
   })
 );
+
+// Apply ownership_formula filter to rows fetched by getSyncRows.
+// For formulas that reference join fields, resolves them via a second
+// getJoinedRows pass bounded to the PKs already in the result set.
+const applyOwnershipFormula = async (rows, table, user) => {
+  if (!rows.length) return rows;
+  const pkName = table.pk_name;
+  const joinFields = {};
+  add_free_variables_to_joinfields(
+    freeVariables(table.ownership_formula),
+    joinFields,
+    table.getFields()
+  );
+  let rowMap = null;
+  if (Object.keys(joinFields).length > 0) {
+    const pks = rows.map((r) => r[pkName]);
+    const joinedRows = await table.getJoinedRows({
+      where: { [pkName]: { in: pks } },
+      joinFields,
+    });
+    rowMap = Object.fromEntries(joinedRows.map((r) => [r[pkName], r]));
+  }
+  // table.ownership_formula
+  return rows.filter((row) => {
+    const evalRow = rowMap ? rowMap[row[pkName]] ?? row : row;
+    return table.is_owner(user, evalRow);
+  });
+};
 
 const getSyncRows = async (syncInfo, table, syncUntil, user) => {
   const tblName = table.name;
@@ -93,6 +125,8 @@ const getSyncRows = async (syncInfo, table, syncUntil, user) => {
       else row._sync_info_tbl_last_modified_ = syncUntilMs;
       row._sync_info_tbl_ref_ = row[pkName];
     }
+    if (table.ownership_formula && role > minRole)
+      return applyOwnershipFormula(rows, table, user);
     return rows;
   } else {
     const syncFromMs = new Date(syncInfo.syncFrom).valueOf();
@@ -129,6 +163,8 @@ const getSyncRows = async (syncInfo, table, syncUntil, user) => {
           row._sync_info_tbl_last_modified_.valueOf();
       else row._sync_info_tbl_last_modified_ = syncUntilMs;
     }
+    if (table.ownership_formula && role > minRole)
+      return applyOwnershipFormula(rows, table, user);
     return rows;
   }
 };
@@ -172,7 +208,7 @@ router.post(
               continue;
             else if (table.ownership_field_id) {
             } else if (table.ownership_formula) {
-              rows = rows.filter((row) => table.is_owner(req.user, row));
+              // already filtered by applyOwnershipFormula inside getSyncRows
             }
           }
           if (rows.length > rowLimit) {
@@ -194,21 +230,24 @@ router.post(
   })
 );
 
-const getDelRows = async (tblName, syncFrom, syncUntil) => {
+const getDelRows = async (tblName, syncFrom, syncUntil, userId = null) => {
   const syncFromMs = syncFrom.valueOf();
   const syncUntilMs = syncUntil.valueOf();
   if (!Number.isFinite(syncFromMs)) throw new Error("Invalid syncFrom");
   if (!Number.isFinite(syncUntilMs)) throw new Error("Invalid syncUntil");
   const schema = db.getTenantSchemaPrefix();
+  const ownerFilter =
+    userId !== null ? `and alias.owner_id = ${parseInt(userId)}` : "";
   const dbRes = await db.query(
     `select *
      from (
-      select ref, max(last_modified) from ${schema}"${db.sqlsanitize(
+      select ref, max(last_modified), owner_id, owner_fields from ${schema}"${db.sqlsanitize(
       tblName
     )}_sync_info"
-      group by ref, deleted having deleted = true) as alias
+      group by ref, deleted, owner_id, owner_fields having deleted = true) as alias
       where alias.max < to_timestamp($1)
-        and alias.max > to_timestamp($2)`,
+        and alias.max > to_timestamp($2)
+        ${ownerFilter}`,
     [syncUntilMs / 1000.0, syncFromMs / 1000.0]
   );
   for (const row of dbRes.rows) {
@@ -227,6 +266,7 @@ router.post(
   loggedIn,
   error_catcher(async (req, res) => {
     const { syncInfos, syncTimestamp } = req.body || {};
+    const role = req.user ? req.user.role_id : 100;
     try {
       const result = await db.withTransaction(async () => {
         const syncUntil = new Date(syncTimestamp);
@@ -238,6 +278,31 @@ router.post(
           if (!table) throw new Error(`The table '${tblName}' does not exists`);
           if (!table.has_sync_info)
             throw new Error(`The table '${tblName}' has no sync info`);
+          if (role > table.min_role_read) {
+            if (!table.ownership_field_id && !table.ownership_formula) continue;
+            if (!syncInfo.syncFrom) continue;
+            if (table.ownership_field_id) {
+              // Filter by owner_id in SQL
+              result.deletes[tblName] = await getDelRows(
+                tblName,
+                new Date(syncInfo.syncFrom),
+                syncUntil,
+                req.user.id
+              );
+            } else {
+              // ownership_formula: fetch all deletes and evaluate formula in JS
+              // against the field values stored in owner_fields at delete time
+              const rows = await getDelRows(
+                tblName,
+                new Date(syncInfo.syncFrom),
+                syncUntil
+              );
+              result.deletes[tblName] = rows.filter((row) =>
+                table.is_owner(req.user, row.owner_fields || {})
+              );
+            }
+            continue;
+          }
           if (syncInfo.syncFrom) {
             result.deletes[tblName] = await getDelRows(
               tblName,
@@ -329,8 +394,9 @@ router.get(
   error_catcher(async (req, res) => {
     const { dir_name } = req.query;
     try {
-      const expectedSuffix = `_${req.user?.email || "public"}`;
-      if (!dir_name || !dir_name.endsWith(expectedSuffix)) {
+      const expectedEmail = req.user?.email || "public";
+      const dirMatch = dir_name ? dir_name.match(/^\d+_(.+)$/) : null;
+      if (!dirMatch || dirMatch[1] !== expectedEmail) {
         return res.status(403).json({ error: "Access denied" });
       }
       const rootFolder = await File.rootFolder();
@@ -388,8 +454,9 @@ router.post(
   error_catcher(async (req, res) => {
     const { dir_name } = req.body || {};
     try {
-      const expectedSuffix = `_${req.user?.email || "public"}`;
-      if (!dir_name || !dir_name.endsWith(expectedSuffix)) {
+      const expectedEmail = req.user?.email || "public";
+      const dirMatch = dir_name ? dir_name.match(/^\d+_(.+)$/) : null;
+      if (!dirMatch || dirMatch[1] !== expectedEmail) {
         return res.status(403).json({ error: "Access denied" });
       }
       const rootFolder = await File.rootFolder();
