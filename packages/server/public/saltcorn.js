@@ -1687,3 +1687,1436 @@ function ensure_css_loaded(src) {
     return i(a, b, g, h, c, !0);
   };
 })(this);
+
+// Entities list page
+function entitiesListInit(config) {
+  const {
+    LEGACY_LINK_META,
+    TAGS_BY_ID,
+    ROLES_BY_ID,
+    TXT_SELECTED,
+    TXT_DELETE_SELECTED_CONFIRM,
+    TXT_DELETE_SELECTED_FALLBACK,
+    TXT_DELETE_FAILED,
+  } = config;
+
+  // DOM refs
+  const searchInput = document.getElementById("entity-search");
+  const deepSearchToggle = document.getElementById("entity-deep-search");
+  const entitiesList = document.getElementById("entities-list");
+  const noResults = document.getElementById("no-results");
+  const filterButtons = document.querySelectorAll(".entity-filter-btn");
+  const filterButtonsByType = {};
+  filterButtons.forEach((btn) => {
+    const type = btn.dataset.entityType;
+    if (type) filterButtonsByType[type] = btn;
+  });
+  const tagButtons = document.querySelectorAll(".tag-filter-btn");
+  const filtersRow = document.getElementById("entity-filters-row");
+  const selectionBar = document.getElementById("entity-selection-bar");
+  const selectionCountEl = document.getElementById("entity-selection-count");
+  const clearSelectionBtn = document.getElementById("entity-clear-selection");
+  const bulkDeleteBtn = document.getElementById("entity-bulk-delete");
+  const bulkTagSelect = document.getElementById("entity-bulk-tag-select");
+  const bulkApplyTagBtn = document.getElementById("entity-bulk-apply-tag");
+  const bulkDownloadPackBtn = document.getElementById(
+    "entity-bulk-download-pack"
+  );
+  const bulkRoleReadSelect = document.getElementById(
+    "entity-bulk-role-read-select"
+  );
+  const bulkApplyRoleReadBtn = document.getElementById(
+    "entity-bulk-apply-role-read"
+  );
+  const bulkRoleWriteSelect = document.getElementById(
+    "entity-bulk-role-write-select"
+  );
+  const bulkApplyRoleWriteBtn = document.getElementById(
+    "entity-bulk-apply-role-write"
+  );
+  const bulkRoleReadGroup = document.getElementById(
+    "entity-bulk-role-read-group"
+  );
+  const bulkRoleWriteGroup = document.getElementById(
+    "entity-bulk-role-write-group"
+  );
+  const entitiesTbody = document.getElementById("entities-main-body");
+  const recentTbody = document.getElementById("entities-recent-body");
+
+  // Type constants
+  const BASE_TYPES = ["table", "view", "page", "trigger"];
+  const EXTENDED_TYPES = ["module", "user"];
+  const ALL_TYPES = BASE_TYPES.concat(EXTENDED_TYPES);
+  window.ENTITY_EXTENDED_TYPES = EXTENDED_TYPES;
+
+  // Selection state
+  const selectedKeys = new Set();
+  let lastSelectedIndex = null;
+
+  // Filter state
+  const activeFilters = new Set([]);
+  const activeTags = new Set([]);
+
+  // Extended entity state
+  let isExtendedExpanded = false;
+  let hasLoadedAllModules = false;
+  let isLoadingAllModules = false;
+
+  // --- Row helpers ---
+
+  const isRowSelectable = (row) => {
+    if (!row) return false;
+    const type = row.dataset.entityType;
+    if (type === "module" && row.dataset.installed === "false") return false;
+    return true;
+  };
+
+  const findRowByKey = (key) =>
+    Array.from(document.querySelectorAll(".entity-row")).find(
+      (row) => row.dataset.entityKey === key
+    );
+
+  const selectionPayloadFromRow = (row) => {
+    if (!row) return null;
+    return {
+      key: row.dataset.entityKey,
+      type: row.dataset.entityType,
+      id: row.dataset.entityId || null,
+      name: row.dataset.entityLabel || row.dataset.entityName || "",
+      installed: row.dataset.installed,
+      moduleKind: row.dataset.moduleKind,
+    };
+  };
+
+  const getVisibleRows = () =>
+    Array.from(document.querySelectorAll(".entity-row")).filter(
+      (row) => row.style.display !== "none"
+    );
+
+  const getSelectableVisibleRows = () =>
+    getVisibleRows().filter((row) => isRowSelectable(row));
+
+  const isTypingTarget = (el) => {
+    if (!el) return false;
+    if (el.isContentEditable) return true;
+    const tag = el.tagName;
+    if (!tag) return false;
+    const tagName = tag.toUpperCase();
+    if (tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT")
+      return true;
+    return !!el.closest('[contenteditable="true"]');
+  };
+
+  const refreshSelectionStyles = () => {
+    document.querySelectorAll(".entity-row").forEach((row) => {
+      const key = row.dataset.entityKey;
+      if (!isRowSelectable(row) && selectedKeys.has(key))
+        selectedKeys.delete(key);
+      if (selectedKeys.has(key)) {
+        row.classList.add("table-active", "entity-row-selected");
+      } else {
+        row.classList.remove("table-active", "entity-row-selected");
+      }
+    });
+  };
+
+  const syncSelectBorder = (el, varName) => {
+    if (!el) return;
+    const disabledBorder =
+      "color-mix(in srgb, var(--bs-btn-disabled-color, var(--bs-secondary)) 70%, transparent)";
+    const enabledBorder = "var(--bs-secondary)";
+    el.style.setProperty(varName, el.disabled ? disabledBorder : enabledBorder);
+  };
+
+  const markSelectChangedByUser = (sel) => {
+    if (sel) sel.dataset.userSelected = "true";
+  };
+  const resetSelectUserFlag = (sel) => {
+    if (sel) sel.dataset.userSelected = "";
+  };
+
+  const isTaggableType = (type) =>
+    ["table", "view", "page", "trigger"].includes(type);
+  const isDownloadableEntity = (item) =>
+    !!item && ["table", "view", "page", "trigger"].includes(item.type);
+
+  const isModulesFilterExclusive = () =>
+    activeFilters.size === 1 && activeFilters.has("module");
+  window.isModulesFilterExclusive = isModulesFilterExclusive;
+
+  const collectSelectionItems = () =>
+    Array.from(selectedKeys)
+      .map((key) => selectionPayloadFromRow(findRowByKey(key)))
+      .filter(Boolean);
+
+  const getRoleName = (rid) => {
+    if (typeof rid === "undefined") return "";
+    const key = String(rid);
+    if (!ROLES_BY_ID) return "";
+    return Object.prototype.hasOwnProperty.call(ROLES_BY_ID, key)
+      ? ROLES_BY_ID[key]
+      : "?";
+  };
+
+  const toNumberOrUndefined = (val) => {
+    if (val === "" || typeof val === "undefined" || val === null)
+      return undefined;
+    const num = Number(val);
+    return Number.isNaN(num) ? undefined : num;
+  };
+
+  const updateRowAccess = (row, payload) => {
+    if (!row) return;
+    if (typeof payload.min_role_read !== "undefined")
+      row.dataset.minRoleRead = String(payload.min_role_read ?? "");
+    if (typeof payload.min_role_write !== "undefined")
+      row.dataset.minRoleWrite = String(payload.min_role_write ?? "");
+    if (typeof payload.min_role !== "undefined")
+      row.dataset.minRole = String(payload.min_role ?? "");
+    const cell = row.querySelector("td:nth-child(5)");
+    if (cell) {
+      const label = (() => {
+        if (payload.type === "table") {
+          const ext = row.dataset.external === "true";
+          const rr = toNumberOrUndefined(payload.min_role_read);
+          const rw = toNumberOrUndefined(payload.min_role_write);
+          if (ext) return getRoleName(rr) + " (read only)";
+          if (typeof rr !== "undefined" && typeof rw !== "undefined")
+            return getRoleName(rr) + "/" + getRoleName(rw);
+          return "";
+        }
+        const mr = toNumberOrUndefined(payload.min_role);
+        return typeof mr !== "undefined" ? getRoleName(mr) : "";
+      })();
+      cell.textContent = label;
+    }
+  };
+
+  const updateSelectionUI = () => {
+    refreshSelectionStyles();
+    const count = selectedKeys.size ?? 0;
+    if (selectionCountEl) {
+      selectionCountEl.textContent = count + " " + (TXT_SELECTED || "selected");
+    }
+    if (filtersRow && selectionBar) {
+      if (count > 0) {
+        filtersRow.classList.add("d-none");
+        selectionBar.classList.remove("d-none");
+      } else {
+        filtersRow.classList.remove("d-none");
+        selectionBar.classList.add("d-none");
+      }
+    }
+    if (bulkDeleteBtn) bulkDeleteBtn.disabled = count === 0;
+    if (clearSelectionBtn) clearSelectionBtn.disabled = count === 0;
+    const items = collectSelectionItems();
+    const hasTaggable = items.some((item) => isTaggableType(item.type));
+    const hasAccessRoleEntities = items.some((item) =>
+      ["table", "view", "page"].includes(item.type)
+    );
+    const hasWriteRoleEntities = items.some((item) => item.type === "table");
+    if (items.length === 1) {
+      const only = items[0];
+      const row = findRowByKey(only.key);
+      if (
+        row &&
+        bulkRoleReadSelect &&
+        bulkRoleReadSelect.dataset.userSelected !== "true"
+      ) {
+        const initRead =
+          only.type === "table"
+            ? row.dataset.minRoleRead || ""
+            : row.dataset.minRole || "";
+        bulkRoleReadSelect.value = initRead || "";
+      }
+      if (
+        row &&
+        bulkRoleWriteSelect &&
+        only.type === "table" &&
+        bulkRoleWriteSelect.dataset.userSelected !== "true"
+      ) {
+        bulkRoleWriteSelect.value = row.dataset.minRoleWrite || "";
+      }
+    } else if (items.length === 0) {
+      if (bulkRoleReadSelect) {
+        bulkRoleReadSelect.value = "";
+        resetSelectUserFlag(bulkRoleReadSelect);
+      }
+      if (bulkRoleWriteSelect) {
+        bulkRoleWriteSelect.value = "";
+        resetSelectUserFlag(bulkRoleWriteSelect);
+      }
+    }
+    if (bulkTagSelect) {
+      bulkTagSelect.disabled = !(count > 0 && hasTaggable);
+      syncSelectBorder(bulkTagSelect, "--entity-bulk-tag-border");
+    }
+    if (bulkApplyTagBtn) {
+      bulkApplyTagBtn.disabled = !(
+        count > 0 &&
+        hasTaggable &&
+        bulkTagSelect &&
+        bulkTagSelect.value
+      );
+    }
+    if (bulkRoleReadSelect) {
+      bulkRoleReadSelect.disabled = !(count > 0 && hasAccessRoleEntities);
+      syncSelectBorder(bulkRoleReadSelect, "--entity-bulk-role-border");
+    }
+    if (bulkApplyRoleReadBtn) {
+      bulkApplyRoleReadBtn.disabled = !(
+        count > 0 &&
+        hasAccessRoleEntities &&
+        bulkRoleReadSelect &&
+        bulkRoleReadSelect.value
+      );
+    }
+    if (bulkRoleWriteSelect) {
+      bulkRoleWriteSelect.disabled = !(count > 0 && hasWriteRoleEntities);
+      syncSelectBorder(bulkRoleWriteSelect, "--entity-bulk-role-border");
+    }
+    if (bulkApplyRoleWriteBtn) {
+      bulkApplyRoleWriteBtn.disabled = !(
+        count > 0 &&
+        hasWriteRoleEntities &&
+        bulkRoleWriteSelect &&
+        bulkRoleWriteSelect.value
+      );
+    }
+    if (bulkRoleWriteGroup) {
+      if (hasWriteRoleEntities) bulkRoleWriteGroup.classList.remove("d-none");
+      else bulkRoleWriteGroup.classList.add("d-none");
+    }
+    if (bulkDownloadPackBtn) bulkDownloadPackBtn.disabled = !(count > 0);
+  };
+
+  const clearSelection = () => {
+    selectedKeys.clear();
+    lastSelectedIndex = null;
+    updateSelectionUI();
+  };
+
+  const updateRowTags = (row, tagId, tagName, entityType) => {
+    if (!row || !tagId) return;
+    const tagsCell = row.querySelector("td:nth-child(6)");
+    if (!tagsCell) return;
+    const dropdown = tagsCell.querySelector(".dropdown");
+    const currentTags = (row.dataset.tags || "").split(" ").filter(Boolean);
+    if (!currentTags.includes(String(tagId))) currentTags.push(String(tagId));
+    row.dataset.tags = currentTags.join(" ");
+    tagsCell.innerHTML = "";
+    const pluralMap = {
+      table: "tables",
+      view: "views",
+      page: "pages",
+      trigger: "triggers",
+    };
+    currentTags.forEach((tid) => {
+      const name = TAGS_BY_ID[tid] || tagName || tid;
+      const plural = pluralMap[entityType] || "tables";
+      const badge = document.createElement("a");
+      badge.className = "badge bg-secondary me-1";
+      badge.setAttribute(
+        "href",
+        "/tag/" + encodeURIComponent(tid) + "?show_list=" + plural
+      );
+      badge.textContent = name;
+      tagsCell.appendChild(badge);
+    });
+    if (dropdown) tagsCell.appendChild(dropdown);
+  };
+
+  // --- URL / on-done helpers ---
+
+  const getCurrentOnDoneTarget = () => {
+    const path = window.location.pathname.startsWith("/")
+      ? window.location.pathname.slice(1)
+      : window.location.pathname;
+    return path + window.location.search;
+  };
+
+  const shouldSkipOnDoneHref = (raw) => {
+    if (!raw) return true;
+    const trimmed = raw.trim();
+    return (
+      trimmed === "#" ||
+      trimmed === "" ||
+      trimmed.toLowerCase().startsWith("javascript:")
+    );
+  };
+
+  const toRelativeHrefWithOnDone = (raw) => {
+    if (shouldSkipOnDoneHref(raw)) return null;
+    try {
+      const url = new URL(raw, window.location.origin);
+      url.searchParams.set("on_done_redirect", getCurrentOnDoneTarget());
+      return url.pathname + url.search + url.hash;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  const updateElementOnDoneHref = (el, attr) => {
+    const raw = el.getAttribute(attr) || el[attr];
+    const updated = toRelativeHrefWithOnDone(raw);
+    if (updated) el.setAttribute(attr, updated);
+  };
+
+  const ensureOnDoneHiddenInput = (form) => {
+    if (form.querySelector('input[name="on_done_redirect"]')) return;
+    const hidden = document.createElement("input");
+    hidden.type = "hidden";
+    hidden.name = "on_done_redirect";
+    hidden.value = getCurrentOnDoneTarget();
+    form.appendChild(hidden);
+  };
+
+  const updateOnDoneRedirectTargets = () => {
+    document
+      .querySelectorAll('a[href*="on_done_redirect="]')
+      .forEach((link) => updateElementOnDoneHref(link, "href"));
+    document
+      .querySelectorAll('form[action*="on_done_redirect="]')
+      .forEach((form) => updateElementOnDoneHref(form, "action"));
+  };
+
+  const updateLegacyButton = () => {
+    const legacyButton = document.getElementById("legacy-entity-link");
+    const legacyLabel = legacyButton
+      ? legacyButton.querySelector(".legacy-label")
+      : null;
+    if (!legacyButton) return;
+    const activeTypes = Array.from(activeFilters);
+    if (activeTypes.length === 1) {
+      const meta = LEGACY_LINK_META[activeTypes[0]];
+      if (meta) {
+        legacyButton.classList.remove("d-none");
+        legacyButton.setAttribute("href", meta.href);
+        if (legacyLabel) legacyLabel.textContent = meta.label;
+        return;
+      }
+    }
+    legacyButton.classList.add("d-none");
+  };
+
+  const updateUrl = () => {
+    const params = new URLSearchParams(window.location.search);
+    if (searchInput.value) params.set("q", searchInput.value);
+    else params.delete("q");
+    if (deepSearchToggle && deepSearchToggle.checked) params.set("deep", "on");
+    else params.delete("deep");
+    ALL_TYPES.forEach((t) => {
+      if (activeFilters.has(t)) params.set(t + "s", "on");
+      else params.delete(t + "s");
+    });
+    if (isExtendedExpanded) params.set("extended", "on");
+    else params.delete("extended");
+    if (activeTags.size > 0)
+      params.set("tags", Array.from(activeTags).join(","));
+    else params.delete("tags");
+    const newUrl =
+      window.location.pathname +
+      (params.toString() ? "?" + params.toString() : "");
+    window.history.replaceState(null, "", newUrl);
+  };
+
+  // --- Extended entity functions ---
+
+  const clearExtendedTypeFilters = () => {
+    EXTENDED_TYPES.forEach((type) => {
+      if (activeFilters.has(type)) {
+        activeFilters.delete(type);
+        const btn = document.querySelector(
+          '.entity-filter-btn[data-entity-type="' + type + '"]'
+        );
+        if (btn) {
+          btn.classList.remove("btn-primary");
+          btn.classList.add("btn-outline-primary");
+        }
+      }
+    });
+  };
+
+  const loadExtendedEntities = async (includeAllModules = false) => {
+    try {
+      const query = includeAllModules ? "?include_all_modules=1" : "";
+      const res = await fetch("/entities/extended" + query);
+      const data = await res.json();
+      return data.entities || [];
+    } catch (e) {
+      console.error("Failed to load extended entities:", e);
+      return [];
+    }
+  };
+
+  const renderExtendedEntityRows = (extendedEntities, tbody) => {
+    document
+      .querySelectorAll("[data-is-extended]")
+      .forEach((row) => row.remove());
+    extendedEntities.forEach((entity) =>
+      tbody.appendChild(createExtendedEntityRow(entity))
+    );
+    updateSelectionUI();
+  };
+
+  const ensureAllModulesLoaded = async () => {
+    if (hasLoadedAllModules || isLoadingAllModules || !isExtendedExpanded)
+      return;
+    isLoadingAllModules = true;
+    let updated = false;
+    try {
+      const extendedEntities = await loadExtendedEntities(true);
+      window.extendedEntities = extendedEntities;
+      const tbody = entitiesTbody;
+      renderExtendedEntityRows(extendedEntities, tbody);
+      hasLoadedAllModules = true;
+      updated = true;
+    } catch (e) {
+      console.error("Failed to load all modules:", e);
+    } finally {
+      isLoadingAllModules = false;
+      if (updated) filterEntities();
+    }
+  };
+
+  window.toggleEntityExpanded = async (expand) => {
+    const moreBtn = document.getElementById("entity-more-btn");
+    const lessBtn = document.getElementById("entity-less-btn");
+    const extendedButtons = document.querySelectorAll(".entity-extended-btn");
+    const tbody = entitiesTbody;
+
+    if (expand) {
+      if (isExtendedExpanded) return;
+      extendedButtons.forEach((btn) => btn.classList.remove("d-none"));
+      moreBtn.classList.add("d-none");
+      lessBtn.classList.remove("d-none");
+      isExtendedExpanded = true;
+      const shouldLoadAll = isModulesFilterExclusive();
+      const extendedEntities = await loadExtendedEntities(shouldLoadAll);
+      window.extendedEntities = extendedEntities;
+      renderExtendedEntityRows(extendedEntities, tbody);
+      hasLoadedAllModules = shouldLoadAll;
+      filterEntities();
+    } else {
+      if (!isExtendedExpanded) return;
+      extendedButtons.forEach((btn) => btn.classList.add("d-none"));
+      moreBtn.classList.remove("d-none");
+      lessBtn.classList.add("d-none");
+      isExtendedExpanded = false;
+      hasLoadedAllModules = false;
+      isLoadingAllModules = false;
+      window.extendedEntities = [];
+      renderExtendedEntityRows([], tbody);
+      clearExtendedTypeFilters();
+      filterEntities();
+    }
+  };
+
+  const createExtendedEntityRow = (entity) => {
+    const tr = document.createElement("tr");
+    tr.className = "entity-row";
+    tr.dataset.entityType = entity.type;
+    tr.dataset.entityName = entity.name.toLowerCase();
+    tr.dataset.entityId = entity.id ? entity.id : "";
+    tr.dataset.entityLabel = entity.name;
+    const key =
+      entity.type + ":" + (entity.type === "module" ? entity.name : entity.id);
+    tr.dataset.entityKey = key;
+    let searchable = (
+      (entity.name || "").toLowerCase() +
+      " " +
+      entity.type
+    ).trim();
+    if (entity.metadata) {
+      Object.keys(entity.metadata).forEach((k) => {
+        const val = entity.metadata[k];
+        const skipDescription = entity.type === "module" && k === "description";
+        const skipUsername = entity.type === "user" && k === "username";
+        if (
+          !skipDescription &&
+          !skipUsername &&
+          val &&
+          typeof val === "string"
+        ) {
+          searchable += " " + val.toLowerCase();
+        }
+      });
+    }
+    tr.dataset.tags = "";
+    tr.dataset.isExtended = "true";
+    tr.dataset.installed =
+      entity.metadata && entity.metadata.installed === false ? "false" : "true";
+    tr.dataset.moduleKind =
+      entity.metadata && entity.metadata.type ? entity.metadata.type : "";
+
+    if (!isRowSelectable(tr)) {
+      tr.classList.add("entity-row-selection-disabled");
+      tr.setAttribute("aria-disabled", "true");
+    }
+
+    // Type badge
+    const badges = {
+      module: { class: "secondary", icon: "cube", label: "Module" },
+      user: { class: "dark", icon: "user", label: "User" },
+    };
+    const badge = badges[entity.type];
+    const typeBadge = document.createElement("td");
+    typeBadge.innerHTML =
+      '<span class="badge bg-' +
+      badge.class +
+      ' me-2"><i class="fas fa-' +
+      badge.icon +
+      ' me-1"></i>' +
+      badge.label +
+      "</span>";
+    tr.appendChild(typeBadge);
+
+    const hasConfig = entity.metadata && entity.metadata.hasConfig;
+    const isInstalled = entity.metadata && entity.metadata.installed;
+
+    // Name
+    const nameTd = document.createElement("td");
+    const isStaticModule = entity.type === "module" && !hasConfig;
+    const nameLink = document.createElement(isStaticModule ? "span" : "a");
+    if (!isStaticModule) {
+      const baseHref = entity.editLink || "#";
+      const updatedHref = toRelativeHrefWithOnDone(baseHref);
+      nameLink.setAttribute("href", updatedHref || baseHref);
+    }
+    nameLink.className = "fw-bold";
+    nameLink.textContent = entity.name;
+    nameTd.appendChild(nameLink);
+    tr.appendChild(nameTd);
+
+    // Run / info cell
+    const runTd = document.createElement("td");
+    if (
+      entity.type === "module" &&
+      entity.metadata &&
+      entity.metadata.type !== "pack" &&
+      entity.viewLink &&
+      isInstalled
+    ) {
+      const infoLink = document.createElement("a");
+      infoLink.className = "link-primary text-decoration-none";
+      infoLink.innerHTML = window.TXT_INFO || "Info";
+      const updatedInfoHref = toRelativeHrefWithOnDone(entity.viewLink);
+      infoLink.setAttribute("href", updatedInfoHref || entity.viewLink);
+      runTd.appendChild(infoLink);
+    }
+    tr.appendChild(runTd);
+
+    // Details cell
+    const detailsTd = document.createElement("td");
+    let detailsHtml = "";
+    if (entity.type === "user") {
+      const disabled = entity.metadata && entity.metadata.disabled;
+      const roleId = entity.metadata && entity.metadata.role_id;
+      if (Array.isArray(window.ENTITY_ROLES)) {
+        const role = window.ENTITY_ROLES.find(
+          (r) => String(r.id) === String(roleId)
+        );
+        if (role && role.role) {
+          detailsHtml +=
+            '<span class="text-muted small me-2">' + role.role + "</span>";
+        }
+      }
+      if (disabled) {
+        detailsHtml +=
+          '<span class="badge bg-danger me-1">' +
+          (window.TXT_DISABLED || "Disabled") +
+          "</span>";
+        searchable += " disabled";
+      }
+    } else if (entity.type === "module") {
+      const version = entity.metadata && entity.metadata.version;
+      const hasTheme = entity.metadata && entity.metadata.has_theme;
+      const hasAuth = entity.metadata && entity.metadata.has_auth;
+      const isReadyForMobile =
+        entity.metadata && entity.metadata.ready_for_mobile;
+      const isLocal = entity.metadata && entity.metadata.local;
+      const isPack = entity.metadata && entity.metadata.type === "pack";
+      if (version)
+        detailsHtml +=
+          '<span class="text-muted small me-2">v' + version + "</span>";
+      if (isPack)
+        detailsHtml +=
+          '<span class="badge bg-secondary me-1">' +
+          (window.TXT_PACK || "Pack") +
+          "</span>";
+      if (hasTheme) {
+        detailsHtml +=
+          '<span class="badge bg-secondary me-1">' +
+          (window.TXT_THEME || "Theme") +
+          "</span>";
+        searchable += " theme";
+      }
+      if (isLocal) {
+        detailsHtml +=
+          '<span class="badge bg-secondary me-1">' +
+          (window.TXT_LOCAL || "Local") +
+          "</span>";
+        searchable += " local";
+      }
+      if (isInstalled) {
+        detailsHtml +=
+          '<span class="badge bg-secondary me-1">' +
+          (window.TXT_INSTALLED || "Installed") +
+          "</span>";
+        searchable += " installed";
+      }
+      if (hasAuth) {
+        detailsHtml +=
+          '<span class="badge bg-secondary me-1">' +
+          (window.TXT_AUTH || "Authentication") +
+          "</span>";
+        searchable += " authentication auth";
+      }
+      if (isReadyForMobile) {
+        detailsHtml +=
+          '<span class="badge bg-secondary me-1">' +
+          (window.TXT_MOBILE || "Mobile") +
+          "</span>";
+        searchable += " mobile";
+      }
+    }
+    if (detailsHtml) detailsTd.innerHTML = detailsHtml;
+    tr.appendChild(detailsTd);
+
+    tr.appendChild(document.createElement("td")); // access
+    tr.appendChild(document.createElement("td")); // tags
+
+    // Actions cell
+    const actionsTd = document.createElement("td");
+    if (entity.actionsHtml) {
+      actionsTd.innerHTML = entity.actionsHtml;
+      actionsTd.querySelectorAll("a").forEach((link) => {
+        const updated = toRelativeHrefWithOnDone(link.getAttribute("href"));
+        if (updated) link.setAttribute("href", updated);
+      });
+      actionsTd.querySelectorAll("form").forEach((form) => {
+        const updated = toRelativeHrefWithOnDone(form.getAttribute("action"));
+        if (updated) form.setAttribute("action", updated);
+        if (entity.type === "user") ensureOnDoneHiddenInput(form);
+      });
+      const dropdownToggle = actionsTd.querySelector(
+        '[data-bs-toggle="dropdown"]'
+      );
+      if (dropdownToggle && window.bootstrap && window.bootstrap.Dropdown) {
+        window.bootstrap.Dropdown.getOrCreateInstance(dropdownToggle);
+      }
+    }
+    tr.appendChild(actionsTd);
+
+    tr.dataset.searchable = searchable.trim();
+    let deepSearchable = (entity.deepSearchable || searchable).trim();
+    if (entity.type === "module") {
+      const description =
+        entity.metadata && typeof entity.metadata.description === "string"
+          ? entity.metadata.description.toLowerCase()
+          : "";
+      if (description && !deepSearchable.includes(description)) {
+        deepSearchable = (deepSearchable + " " + description).trim();
+      }
+    } else if (
+      entity.type === "user" &&
+      entity.metadata &&
+      typeof entity.metadata.username === "string"
+    ) {
+      const usernameLower = entity.metadata.username.toLowerCase();
+      if (!deepSearchable.includes(usernameLower)) {
+        deepSearchable = (deepSearchable + " " + usernameLower).trim();
+      }
+    }
+    tr.dataset.deepSearchable = deepSearchable;
+    if (window.ENTITY_DEEP_SEARCH) {
+      window.ENTITY_DEEP_SEARCH[key] = deepSearchable;
+    }
+    return tr;
+  };
+
+  // Recently edited
+
+  const relativeTime = (isoStr) => {
+    if (!isoStr) return "";
+    const diff = Date.now() - new Date(isoStr).getTime();
+    const m = Math.floor(diff / 60000);
+    if (m < 1) return "just now";
+    if (m < 60) return m + "m ago";
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + "h ago";
+    const d = Math.floor(h / 24);
+    if (d < 30) return d + "d ago";
+    const mo = Math.floor(d / 30);
+    return mo + "mo ago";
+  };
+
+  const RECENT_COUNT = 5;
+
+  const updateRecentlyEdited = () => {
+    if (!recentTbody) return;
+
+    // Only show when there is no active search
+    const hasSearch = searchInput && searchInput.value.trim().length > 0;
+
+    // Collect visible main rows that have an updated_at timestamp
+    const candidates = Array.from(
+      entitiesTbody ? entitiesTbody.querySelectorAll(".entity-row") : []
+    ).filter((r) => r.style.display !== "none" && r.dataset.updatedAt);
+
+    if (hasSearch || candidates.length === 0) {
+      Array.from(
+        recentTbody.querySelectorAll(
+          ".entity-row-clone, .entity-section-header-row"
+        )
+      ).forEach((r) => r.remove());
+      recentTbody.classList.add("d-none");
+      return;
+    }
+
+    // Sort by updated_at descending, take top N
+    candidates.sort(
+      (a, b) => new Date(b.dataset.updatedAt) - new Date(a.dataset.updatedAt)
+    );
+    const recent = candidates.slice(0, RECENT_COUNT);
+
+    // Clear previous clones (keep the section header rows)
+    Array.from(recentTbody.querySelectorAll(".entity-row-clone")).forEach((r) =>
+      r.remove()
+    );
+    Array.from(
+      recentTbody.querySelectorAll(".entity-section-header-row")
+    ).forEach((r) => r.remove());
+
+    // Build section header row for recent
+    const recentHeaderTr = document.createElement("tr");
+    recentHeaderTr.className = "entity-section-header-row";
+    const recentHeaderTd = document.createElement("td");
+    recentHeaderTd.colSpan = 7;
+    recentHeaderTd.textContent = "Recently edited";
+    recentHeaderTr.appendChild(recentHeaderTd);
+    recentTbody.appendChild(recentHeaderTr);
+
+    // Insert clones
+    recent.forEach((originalRow) => {
+      const clone = originalRow.cloneNode(true);
+      clone.dataset.recentClone = "true";
+      clone.classList.remove("entity-row");
+      clone.classList.add("entity-row-clone", "entity-row-recent");
+
+      const tds = clone.querySelectorAll("td");
+
+      const detailsTd = tds[3];
+      if (detailsTd) {
+        const timeBadge = document.createElement("span");
+        timeBadge.className =
+          "badge bg-secondary-subtle text-secondary fw-normal me-1 ms-1";
+        timeBadge.textContent = relativeTime(originalRow.dataset.updatedAt);
+        // detailsContent wraps badges in a div; insert inside it so they stay inline
+        const detailsDiv = detailsTd.querySelector("div");
+        if (detailsDiv) {
+          // detailsDiv.insertBefore(timeBadge, detailsDiv.firstChild);
+          detailsDiv.lastChild.after(timeBadge);
+        } else {
+          // detailsTd.insertBefore(timeBadge, detailsTd.firstChild);
+          detailsTd.appendChild(timeBadge);
+        }
+      }
+
+      // Remove add-tag dropdown from tags cell to avoid duplicate IDs
+      const tagsTd = tds[tds.length - 2];
+      if (tagsTd) {
+        const dropdown = tagsTd.querySelector(".dropdown");
+        if (dropdown) dropdown.remove();
+      }
+
+      // On row click (not a link/button), scroll to + flash the original
+      clone.addEventListener("click", (e) => {
+        if (e.target.closest("a, button, input, select, textarea, label"))
+          return;
+        const original = entitiesTbody
+          ? entitiesTbody.querySelector(
+              '.entity-row[data-entity-key="' +
+                originalRow.dataset.entityKey.replace(/"/g, '\\"') +
+                '"]'
+            )
+          : null;
+        if (original) {
+          original.scrollIntoView({ behavior: "smooth", block: "center" });
+          original.classList.remove("entity-row-flash");
+          void original.offsetWidth; // reflow to restart animation
+          original.classList.add("entity-row-flash");
+          setTimeout(() => original.classList.remove("entity-row-flash"), 1500);
+        }
+      });
+
+      recentTbody.appendChild(clone);
+    });
+
+    // Build "All entities" separator at bottom of recent section
+    const allHeaderTr = document.createElement("tr");
+    allHeaderTr.className = "entity-section-header-row";
+    const allHeaderTd = document.createElement("td");
+    allHeaderTd.colSpan = 7;
+    allHeaderTd.textContent = "All entities";
+    allHeaderTr.appendChild(allHeaderTd);
+    recentTbody.appendChild(allHeaderTr);
+
+    recentTbody.classList.remove("d-none");
+  };
+
+  // --- Main filter function ---
+
+  function filterEntities() {
+    const entityRows = document.querySelectorAll(".entity-row");
+    const searchTerm = searchInput.value.toLowerCase();
+    const useDeep = deepSearchToggle && deepSearchToggle.checked;
+    let visibleCount = 0;
+    const visibleKeys = new Set();
+    const allowAllModules = isModulesFilterExclusive();
+    const canShowAllModules = allowAllModules && isExtendedExpanded;
+    if (canShowAllModules && !hasLoadedAllModules) {
+      ensureAllModulesLoaded();
+    }
+
+    entityRows.forEach((row) => {
+      const entityType = row.dataset.entityType;
+      const key = row.dataset.entityKey;
+      const deepText =
+        useDeep && window.ENTITY_DEEP_SEARCH
+          ? window.ENTITY_DEEP_SEARCH[key]
+          : null;
+      const searchableText = useDeep
+        ? deepText || row.dataset.deepSearchable || ""
+        : row.dataset.searchable || "";
+
+      const rowTags = (row.dataset.tags || "").split(" ").filter(Boolean);
+      const rowInstalled = row.dataset.installed !== "false";
+      const typeMatch = activeFilters.has(entityType);
+      const searchMatch = !searchTerm || searchableText.includes(searchTerm);
+      const tagMatch =
+        activeTags.size === 0 || rowTags.some((tid) => activeTags.has(tid));
+      const moduleVisibilityOk =
+        entityType !== "module" || rowInstalled || canShowAllModules;
+
+      if (
+        (activeFilters.size === 0 || typeMatch) &&
+        searchMatch &&
+        tagMatch &&
+        moduleVisibilityOk
+      ) {
+        row.style.display = "";
+        visibleKeys.add(key);
+        visibleCount++;
+      } else {
+        row.style.display = "none";
+      }
+    });
+
+    selectedKeys.forEach((key) => {
+      if (!visibleKeys.has(key)) selectedKeys.delete(key);
+    });
+
+    if (visibleCount === 0) {
+      entitiesList.parentElement.classList.add("d-none");
+      noResults.classList.remove("d-none");
+    } else {
+      entitiesList.parentElement.classList.remove("d-none");
+      noResults.classList.add("d-none");
+    }
+
+    updateUrl();
+    updateOnDoneRedirectTargets();
+    updateLegacyButton();
+    updateSelectionUI();
+    updateRecentlyEdited();
+  }
+
+  // --- Bulk action helpers ---
+
+  const triggerDownload = (filename, content) => {
+    const blob = new Blob([content], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const formatDeleteError = (err) => {
+    const displayType =
+      err && err.isPack
+        ? "Pack"
+        : (() => {
+            const t = ((err && err.type) || "").toString();
+            if (!t) return "Item";
+            return t.charAt(0).toUpperCase() + t.slice(1);
+          })();
+    const label = (err && (err.name || err.id || err.key)) || "(unknown)";
+    const message =
+      (err && err.message) ||
+      TXT_DELETE_FAILED ||
+      "Failed to delete selected items";
+    return displayType + " (" + label + "): " + message;
+  };
+
+  const showBulkDeleteErrors = (errs) => {
+    if (!errs || !errs.length) return;
+    alert(errs.map((e) => formatDeleteError(e)).join("\n-----\n"));
+  };
+
+  const removeRowsByKeys = (keysToRemove) => {
+    if (!keysToRemove || !keysToRemove.size) return;
+    document.querySelectorAll(".entity-row").forEach((row) => {
+      if (keysToRemove.has(row.dataset.entityKey)) row.remove();
+    });
+  };
+
+  const refreshExtendedEntitiesAfterDelete = async () => {
+    if (!isExtendedExpanded) return;
+    const tbody = entitiesTbody;
+    if (!tbody) return;
+    try {
+      const extendedEntities = await loadExtendedEntities(
+        isModulesFilterExclusive()
+      );
+      window.extendedEntities = extendedEntities;
+      renderExtendedEntityRows(extendedEntities, tbody);
+    } catch (err) {
+      console.error("Failed to refresh extended entities after delete:", err);
+    }
+  };
+
+  const doBulkApplyTag = async () => {
+    if (!bulkApplyTagBtn || !bulkTagSelect) return;
+    const tagId = bulkTagSelect.value;
+    if (!tagId) return;
+    const items = collectSelectionItems().filter((item) =>
+      isTaggableType(item.type)
+    );
+    if (!items.length) return;
+    bulkApplyTagBtn.disabled = true;
+    try {
+      const res = await fetch("/entities/bulk-apply-tag", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "CSRF-Token": window._sc_globalCsrf || "",
+        },
+        body: JSON.stringify({ tag_id: tagId, items }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      await res.json();
+      const tagName = TAGS_BY_ID[tagId] || "";
+      items.forEach((item) => {
+        const row = findRowByKey(item.key);
+        if (row) updateRowTags(row, tagId, tagName, item.type);
+      });
+      filterEntities();
+    } catch (e) {
+      console.error("Failed to apply tag to selected items", e);
+      alert("Failed to apply tag to selected items");
+    }
+    bulkApplyTagBtn.disabled = false;
+  };
+
+  const doBulkDownloadPack = async () => {
+    if (!bulkDownloadPackBtn) return;
+    const items = collectSelectionItems();
+    if (!items.length) return;
+    bulkDownloadPackBtn.disabled = true;
+    try {
+      const res = await fetch("/entities/download-pack", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "CSRF-Token": window._sc_globalCsrf || "",
+        },
+        body: JSON.stringify({ items }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const payload = await res.json();
+      if (Array.isArray(payload && payload.packs)) {
+        payload.packs.forEach((pack) => {
+          if (pack && pack.name && pack.content) {
+            const content =
+              typeof pack.content === "string"
+                ? pack.content
+                : JSON.stringify(pack.content, null, 2);
+            triggerDownload(pack.name + ".json", content);
+          }
+        });
+      }
+    } catch (e) {
+      console.error("Failed to download pack(s)", e);
+      alert("Failed to download pack for selected items");
+    }
+    bulkDownloadPackBtn.disabled = false;
+  };
+
+  const doBulkApplyRole = async (mode) => {
+    const isWriteMode = mode === "write";
+    const selectEl = isWriteMode ? bulkRoleWriteSelect : bulkRoleReadSelect;
+    const buttonEl = isWriteMode ? bulkApplyRoleWriteBtn : bulkApplyRoleReadBtn;
+    if (!selectEl || !buttonEl) return;
+    const roleId = selectEl.value;
+    if (!roleId) return;
+    const items = collectSelectionItems().filter((item) =>
+      isWriteMode
+        ? item.type === "table"
+        : ["table", "view", "page"].includes(item.type)
+    );
+    if (!items.length) return;
+    buttonEl.disabled = true;
+    try {
+      const res = await fetch("/entities/bulk-set-role", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "CSRF-Token": window._sc_globalCsrf || "",
+        },
+        body: JSON.stringify({ items, role_id: roleId, mode }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const payload = await res.json();
+      const updatedKeys = new Set((payload && payload.updatedKeys) || []);
+      const errors = (payload && payload.errors) || [];
+      if (errors.length) {
+        console.error("Failed to set role for some items", errors);
+        alert("Failed to set role for some selected items");
+      }
+      items.forEach((item) => {
+        if (updatedKeys.size && !updatedKeys.has(item.key)) return;
+        const row = findRowByKey(item.key);
+        if (!row) return;
+        if (isWriteMode && item.type === "table") {
+          updateRowAccess(row, {
+            type: "table",
+            min_role_write: Number(roleId),
+            min_role_read: toNumberOrUndefined(row.dataset.minRoleRead),
+          });
+        } else if (!isWriteMode) {
+          if (item.type === "table") {
+            updateRowAccess(row, {
+              type: "table",
+              min_role_read: Number(roleId),
+              min_role_write: toNumberOrUndefined(row.dataset.minRoleWrite),
+            });
+          } else if (item.type === "view") {
+            updateRowAccess(row, { type: "view", min_role: Number(roleId) });
+          } else if (item.type === "page") {
+            updateRowAccess(row, { type: "page", min_role: Number(roleId) });
+          }
+        }
+      });
+    } catch (e) {
+      console.error("Failed to set role for selected items", e);
+      alert("Failed to set role for selected items");
+    }
+    buttonEl.disabled = false;
+    updateSelectionUI();
+  };
+
+  // --- URL state restore ---
+
+  const initFromUrl = () => {
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q") || "";
+    if (q) searchInput.value = q;
+    const deep = params.get("deep") === "on";
+    if (deep && deepSearchToggle) {
+      deepSearchToggle.checked = true;
+      deepSearchToggle.dispatchEvent(new Event("change"));
+    }
+    const shouldExpandExtended =
+      params.get("extended") === "on" ||
+      EXTENDED_TYPES.some((t) => params.get(t + "s") === "on");
+    ALL_TYPES.forEach((t) => {
+      if (params.get(t + "s") === "on") activeFilters.add(t);
+    });
+    filterButtons.forEach((btn) => {
+      const t = btn.dataset.entityType;
+      if (activeFilters.has(t)) {
+        btn.classList.add("btn-primary");
+        btn.classList.remove("btn-outline-primary");
+      }
+    });
+    const tagsParam = params.get("tags");
+    if (tagsParam) {
+      tagsParam
+        .split(",")
+        .filter(Boolean)
+        .forEach((id) => activeTags.add(id));
+    }
+    tagButtons.forEach((btn) => {
+      const id = btn.dataset.tagId;
+      if (activeTags.has(id)) {
+        btn.classList.add("active", "btn-secondary");
+        btn.classList.remove("btn-outline-secondary");
+      }
+    });
+    return { shouldExpandExtended };
+  };
+
+  // --- Event listeners ---
+
+  searchInput.addEventListener("input", filterEntities);
+  searchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" || e.key === "Esc") {
+      e.preventDefault();
+      searchInput.blur();
+    }
+  });
+
+  if (deepSearchToggle) {
+    let deepSearchLoading = false;
+    deepSearchToggle.addEventListener("change", function () {
+      if (this.checked && !window.ENTITY_DEEP_SEARCH && !deepSearchLoading) {
+        deepSearchLoading = true;
+        fetch("/entities/deep-search-index")
+          .then((r) => r.json())
+          .then((data) => {
+            window.ENTITY_DEEP_SEARCH = data;
+            deepSearchLoading = false;
+            filterEntities();
+          })
+          .catch(() => {
+            deepSearchLoading = false;
+          });
+      } else {
+        filterEntities();
+      }
+    });
+  }
+
+  filterButtons.forEach((btn) => {
+    btn.addEventListener("click", function () {
+      const entityType = this.dataset.entityType;
+      if (!activeFilters.has(entityType)) {
+        activeFilters.add(entityType);
+        this.classList.add("btn-primary");
+        this.classList.remove("btn-outline-primary");
+      } else {
+        activeFilters.delete(entityType);
+        this.classList.remove("btn-primary");
+        this.classList.add("btn-outline-primary");
+      }
+      filterEntities();
+      if (searchInput && typeof searchInput.focus === "function") {
+        searchInput.focus({ preventScroll: true });
+      }
+    });
+  });
+
+  tagButtons.forEach((btn) => {
+    btn.addEventListener("click", function () {
+      const tid = this.dataset.tagId;
+      if (!activeTags.has(tid)) {
+        activeTags.add(tid);
+        this.classList.add("active", "btn-secondary");
+        this.classList.remove("btn-outline-secondary");
+      } else {
+        activeTags.delete(tid);
+        this.classList.remove("active", "btn-secondary");
+        this.classList.add("btn-outline-secondary");
+      }
+      filterEntities();
+    });
+  });
+
+  const keyboardShortcutTypeMap = {
+    KeyT: "table",
+    KeyV: "view",
+    KeyP: "page",
+    KeyR: "trigger",
+    KeyM: "module",
+    KeyU: "user",
+  };
+
+  document.addEventListener("keydown", async (e) => {
+    const isFromSearchInput = e.target === searchInput;
+    const typingTarget = isTypingTarget(e.target);
+
+    if (e.altKey && !e.ctrlKey && !e.metaKey) {
+      const type = keyboardShortcutTypeMap[e.code];
+      if (type) {
+        e.preventDefault();
+        if (EXTENDED_TYPES.includes(type) && !isExtendedExpanded) {
+          await window.toggleEntityExpanded(true);
+        }
+        const btn = filterButtonsByType[type];
+        if (btn) {
+          btn.click();
+          if (searchInput && typeof searchInput.focus === "function") {
+            searchInput.focus({ preventScroll: true });
+          }
+        }
+        return;
+      }
+      if (deepSearchToggle && e.code === "KeyS") {
+        e.preventDefault();
+        deepSearchToggle.checked = !deepSearchToggle.checked;
+        deepSearchToggle.dispatchEvent(new Event("change"));
+        if (searchInput && typeof searchInput.focus === "function") {
+          searchInput.focus({ preventScroll: true });
+        }
+      }
+      return;
+    }
+    if (typingTarget && !isFromSearchInput) return;
+
+    if (
+      (e.metaKey || e.ctrlKey) &&
+      !e.altKey &&
+      (e.key === "a" || e.key === "A")
+    ) {
+      const visibleRows = getSelectableVisibleRows();
+      if (!visibleRows.length) return;
+      e.preventDefault();
+      visibleRows.forEach((row) => {
+        if (row.dataset.entityKey) selectedKeys.add(row.dataset.entityKey);
+      });
+      lastSelectedIndex = visibleRows.length - 1;
+      updateSelectionUI();
+    }
+  });
+
+  if (clearSelectionBtn) {
+    clearSelectionBtn.addEventListener("click", () => {
+      clearSelection();
+      filterEntities();
+    });
+  }
+  if (bulkTagSelect) {
+    bulkTagSelect.addEventListener("change", () => updateSelectionUI());
+  }
+  if (bulkRoleReadSelect) {
+    bulkRoleReadSelect.addEventListener("change", () => {
+      markSelectChangedByUser(bulkRoleReadSelect);
+      updateSelectionUI();
+    });
+  }
+  if (bulkRoleWriteSelect) {
+    bulkRoleWriteSelect.addEventListener("change", () => {
+      markSelectChangedByUser(bulkRoleWriteSelect);
+      updateSelectionUI();
+    });
+  }
+  if (bulkApplyTagBtn)
+    bulkApplyTagBtn.addEventListener("click", doBulkApplyTag);
+  if (bulkDownloadPackBtn)
+    bulkDownloadPackBtn.addEventListener("click", doBulkDownloadPack);
+  if (bulkApplyRoleReadBtn) {
+    bulkApplyRoleReadBtn.addEventListener("click", () =>
+      doBulkApplyRole("read")
+    );
+  }
+  if (bulkApplyRoleWriteBtn) {
+    bulkApplyRoleWriteBtn.addEventListener("click", () =>
+      doBulkApplyRole("write")
+    );
+  }
+
+  if (bulkDeleteBtn) {
+    bulkDeleteBtn.addEventListener("click", async () => {
+      const items = collectSelectionItems();
+      if (!items.length) return;
+      const template =
+        TXT_DELETE_SELECTED_CONFIRM || TXT_DELETE_SELECTED_FALLBACK;
+      const msg = template.includes("%s")
+        ? template.replace("%s", items.length)
+        : template;
+      if (!window.confirm(msg)) return;
+      bulkDeleteBtn.disabled = true;
+      try {
+        const res = await fetch("/entities/bulk-delete", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "CSRF-Token": window._sc_globalCsrf || "",
+          },
+          body: JSON.stringify({ items }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const payload = await res.json();
+        const keysToRemove = new Set(
+          payload.deletedKeys && payload.deletedKeys.length
+            ? payload.deletedKeys
+            : items.map((i) => i.key)
+        );
+        removeRowsByKeys(keysToRemove);
+        if (payload.errors && payload.errors.length) {
+          console.error("Bulk delete errors", payload.errors);
+          showBulkDeleteErrors(payload.errors);
+        }
+        clearSelection();
+        await refreshExtendedEntitiesAfterDelete();
+        filterEntities();
+      } catch (e) {
+        console.error(e);
+        alert(TXT_DELETE_FAILED || "Failed to delete selected items");
+      }
+      bulkDeleteBtn.disabled = false;
+    });
+  }
+
+  if (entitiesTbody) {
+    entitiesTbody.addEventListener("click", (e) => {
+      const row = e.target.closest(".entity-row");
+      if (!row) return;
+      if (e.target.closest("a, button, input, select, textarea, label")) return;
+      if (!isRowSelectable(row)) {
+        lastSelectedIndex = null;
+        return;
+      }
+      const visibleRows = getSelectableVisibleRows();
+      const index = visibleRows.indexOf(row);
+      const key = row.dataset.entityKey;
+      if (!key) return;
+
+      if (
+        e.shiftKey &&
+        lastSelectedIndex !== null &&
+        visibleRows[lastSelectedIndex]
+      ) {
+        selectedKeys.clear();
+        const start = Math.min(lastSelectedIndex, index);
+        const end = Math.max(lastSelectedIndex, index);
+        for (let i = start; i <= end; i++) {
+          const rangeKey = visibleRows[i].dataset.entityKey;
+          if (rangeKey) selectedKeys.add(rangeKey);
+        }
+      } else if (e.metaKey || e.ctrlKey) {
+        if (selectedKeys.has(key)) selectedKeys.delete(key);
+        else selectedKeys.add(key);
+        lastSelectedIndex = index;
+      } else {
+        const onlyThisSelected =
+          selectedKeys.size === 1 && selectedKeys.has(key);
+        selectedKeys.clear();
+        if (!onlyThisSelected) {
+          selectedKeys.add(key);
+          lastSelectedIndex = index;
+        } else {
+          lastSelectedIndex = null;
+        }
+      }
+      updateSelectionUI();
+    });
+  }
+
+  // --- Init ---
+
+  const { shouldExpandExtended } = initFromUrl();
+  if (shouldExpandExtended) {
+    window.toggleEntityExpanded(true);
+  } else {
+    filterEntities();
+  }
+  searchInput.focus();
+  updateSelectionUI();
+  setTimeout(updateLegacyButton, 200);
+}

@@ -915,7 +915,7 @@ class View implements AbstractView {
     const onDoneRedirect = req.query?.on_done_redirect;
     let action = `/viewedit/config/${encodeURIComponent(this.name)}`;
     if (onDoneRedirect) {
-      action = `${action}?on_done_redirect=${onDoneRedirect}`;
+      action = `${action}?on_done_redirect=${encodeURIComponent(onDoneRedirect)}`;
     }
     if (!this.viewtemplateObj!.configuration_workflow) {
       const Workflow = require("../models/workflow");
@@ -943,7 +943,7 @@ class View implements AbstractView {
     configFlow.autoSave = true;
     configFlow.startAtStepURL = (stepNm) =>
       `/viewedit/config/${this.name}?step=${stepNm}${
-        onDoneRedirect ? `&on_done_redirect=${onDoneRedirect}` : ""
+        onDoneRedirect ? `&on_done_redirect=${encodeURIComponent(onDoneRedirect)}` : ""
       }`;
     configFlow.previewURL = `/view/${this.name}/preview`;
     return configFlow;

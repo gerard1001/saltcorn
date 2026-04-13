@@ -411,6 +411,7 @@ const getAllEntities = async () => {
       type: "table",
       name: t.name,
       id: t.id,
+      updated_at: t.updated_at ? new Date(t.updated_at).toISOString() : null,
       viewLink: `/table/${t.id}`,
       editLink: `/table/${t.id}`,
       metadata: {
@@ -435,6 +436,7 @@ const getAllEntities = async () => {
       type: "view",
       name: v.name,
       id: v.id,
+      updated_at: v.updated_at ? new Date(v.updated_at).toISOString() : null,
       viewLink: `/view/${encodeURIComponent(v.name)}`,
       editLink: v.singleton
         ? null
@@ -456,6 +458,7 @@ const getAllEntities = async () => {
       type: "page",
       name: p.name,
       id: p.id,
+      updated_at: p.updated_at ? new Date(p.updated_at).toISOString() : null,
       viewLink: `/page/${encodeURIComponent(p.name)}`,
       editLink: `/pageedit/edit/${encodeURIComponent(p.name)}`,
       metadata: {
@@ -471,6 +474,7 @@ const getAllEntities = async () => {
       type: "trigger",
       name: tr.name,
       id: tr.id,
+      updated_at: tr.updated_at ? new Date(tr.updated_at).toISOString() : null,
       viewLink: `/actions/configure/${tr.id}`,
       editLink: `/actions/configure/${tr.id}`,
       metadata: {
@@ -669,10 +673,10 @@ const tableActionsDropdown = (entity, req, user_can_edit_tables) => {
 };
 
 /**
- * Main entities list page
+ * Deep search index endpoint. loaded lazily on check
  */
 router.get(
-  "/",
+  "/deep-search-index",
   isAdminOrHasConfigMinRole("min_role_edit_views"),
   error_catcher(async (req, res) => {
     const entities = await getAllEntities();
@@ -719,6 +723,18 @@ router.get(
         );
       }
     }
+    res.json(deepSearchIndex);
+  })
+);
+
+/**
+ * Main entities list page
+ */
+router.get(
+  "/",
+  isAdminOrHasConfigMinRole("min_role_edit_views"),
+  error_catcher(async (req, res) => {
+    const entities = await getAllEntities();
     // fetch roles and tags
     const roles = await User.get_roles();
     const tags = await Tag.find();
@@ -1099,11 +1115,6 @@ router.get(
         entity.type === "view" ? (entity.id ?? entity.name) : entity.id
       }`;
       const tagIds = tagsByEntityKey.get(key) || [];
-      const deepSearchable =
-        deepSearchIndex[key] ||
-        (entity.type === "view"
-          ? deepSearchIndex[`${entity.type}:${entity.name}`]
-          : undefined);
       const tagBadges = tagIds.map((tid) =>
         a(
           {
@@ -1235,6 +1246,9 @@ router.get(
             typeof minRole !== "undefined" ? String(minRole) : "",
           "data-external":
             typeof external !== "undefined" ? String(external) : "",
+          ...(entity.updated_at
+            ? { "data-updated-at": entity.updated_at }
+            : {}),
         },
         td(entityTypeBadge(entity.type)),
         td(
@@ -1270,7 +1284,14 @@ router.get(
           class: "table table-sm table-hover align-middle",
         },
         thead(headerRow),
-        tbody(initially_hidden ? { style: { opacity: "0" } } : {}, ...bodyRows)
+        tbody({ id: "entities-recent-body", class: "d-none" }),
+        tbody(
+          {
+            id: "entities-main-body",
+            ...(initially_hidden ? { style: { opacity: "0" } } : {}),
+          },
+          ...bodyRows
+        )
       )
     );
 
@@ -1282,935 +1303,6 @@ router.get(
       div({ class: "h5" }, req.__("No entities found")),
       div(req.__("Try adjusting your search or filter options"))
     );
-
-    const clientScript = /*js*/ `
-        const searchInput = document.getElementById("entity-search");
-        const deepSearchToggle = document.getElementById("entity-deep-search");
-        const entitiesList = document.getElementById("entities-list");
-        const noResults = document.getElementById("no-results");
-        const filterButtons = document.querySelectorAll(".entity-filter-btn");
-        const filterButtonsByType = {};
-        filterButtons.forEach((btn) => {
-          const type = btn.dataset.entityType;
-          if (type) filterButtonsByType[type] = btn;
-        });
-        const tagButtons = document.querySelectorAll(".tag-filter-btn");
-        const LEGACY_LINK_META = ${JSON.stringify(legacyLinkMeta)};       
-        const filtersRow = document.getElementById("entity-filters-row");
-        const selectionBar = document.getElementById("entity-selection-bar");
-        const selectionCountEl = document.getElementById("entity-selection-count");
-        const clearSelectionBtn = document.getElementById("entity-clear-selection");
-        const bulkDeleteBtn = document.getElementById("entity-bulk-delete");
-        const bulkTagSelect = document.getElementById("entity-bulk-tag-select");
-        const bulkApplyTagBtn = document.getElementById("entity-bulk-apply-tag");
-        const bulkDownloadPackBtn = document.getElementById("entity-bulk-download-pack");
-        const bulkRoleReadSelect = document.getElementById("entity-bulk-role-read-select");
-        const bulkApplyRoleReadBtn = document.getElementById("entity-bulk-apply-role-read");
-        const bulkRoleWriteSelect = document.getElementById("entity-bulk-role-write-select");
-        const bulkApplyRoleWriteBtn = document.getElementById("entity-bulk-apply-role-write");
-        const bulkRoleReadGroup = document.getElementById("entity-bulk-role-read-group");
-        const bulkRoleWriteGroup = document.getElementById("entity-bulk-role-write-group");
-        const entitiesTbody = entitiesList ? entitiesList.querySelector("tbody") : null;
-        const TAGS_BY_ID = ${JSON.stringify(Object.fromEntries(tags.map((t) => [t.id, t.name])))};
-        const ROLES_BY_ID = ${JSON.stringify(Object.fromEntries(roles.map((r) => [r.id, r.role])))};
-
-        const TXT_SELECTED = ${JSON.stringify(req.__("selected"))};
-        const TXT_DELETE_SELECTED_CONFIRM = ${JSON.stringify(req.__("Delete %s selected items?"))};
-        const TXT_DELETE_SELECTED_FALLBACK = ${JSON.stringify(req.__("Delete selected items?"))};
-        const TXT_DELETE_FAILED = ${JSON.stringify(req.__("Failed to delete selected items"))};
-
-        const BASE_TYPES = ["table","view","page","trigger"];
-        const EXTENDED_TYPES = window.ENTITY_EXTENDED_TYPES || ["module","user"];
-        const ALL_TYPES = BASE_TYPES.concat(EXTENDED_TYPES);
-
-        const selectedKeys = new Set();
-        let lastSelectedIndex = null;
-
-        const isRowSelectable = (row) => {
-          if (!row) return false;
-          const type = row.dataset.entityType;
-          const installed = row.dataset.installed !== 'false';
-          const moduleKind = (row.dataset.moduleKind || '').toLowerCase();
-          if (type === 'module' && !installed) return false;
-          return true;
-        };
-
-        const findRowByKey = (key) =>
-          Array.from(document.querySelectorAll('.entity-row')).find(
-            (row) => row.dataset.entityKey === key
-          );
-
-        const selectionPayloadFromRow = (row) => {
-          if (!row) return null;
-          return {
-            key: row.dataset.entityKey,
-            type: row.dataset.entityType,
-            id: row.dataset.entityId || null,
-            name: row.dataset.entityLabel || row.dataset.entityName || "",
-            installed: row.dataset.installed,
-            moduleKind: row.dataset.moduleKind,
-          };
-        };
-
-        const getVisibleRows = () =>
-          Array.from(document.querySelectorAll('.entity-row')).filter(
-            (row) => row.style.display !== 'none'
-          );
-
-        const getSelectableVisibleRows = () =>
-          getVisibleRows().filter((row) => isRowSelectable(row));
-
-        const isTypingTarget = (el) => {
-          if (!el) return false;
-          if (el.isContentEditable) return true;
-          const tag = el.tagName;
-          if (!tag) return false;
-          const tagName = tag.toUpperCase();
-          if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT') return true;
-          return !!el.closest('[contenteditable="true"]');
-        };
-
-        const refreshSelectionStyles = () => {
-          document.querySelectorAll('.entity-row').forEach((row) => {
-            const key = row.dataset.entityKey;
-            if (!isRowSelectable(row) && selectedKeys.has(key)) {
-              selectedKeys.delete(key);
-            }
-            if (selectedKeys.has(key)) {
-              row.classList.add('table-active', 'entity-row-selected');
-            } else {
-              row.classList.remove('table-active', 'entity-row-selected');
-            }
-          });
-        };
-
-        const syncSelectBorder = (el, varName) => {
-          if (!el) return;
-          const disabledBorder =
-            'color-mix(in srgb, var(--bs-btn-disabled-color, var(--bs-secondary)) 70%, transparent)';
-          const enabledBorder = 'var(--bs-secondary)';
-          const borderColor = el.disabled ? disabledBorder : enabledBorder;
-          el.style.setProperty(varName, borderColor);
-        };
-
-        const markSelectChangedByUser = (sel) => {
-          if (sel) sel.dataset.userSelected = 'true';
-        };
-
-        const resetSelectUserFlag = (sel) => {
-          if (sel) sel.dataset.userSelected = '';
-        };
-
-        const updateSelectionUI = () => {
-          refreshSelectionStyles();
-          const count = selectedKeys.size ?? 0;
-          if (selectionCountEl) {
-            const suffix = TXT_SELECTED || 'selected';
-            selectionCountEl.textContent = count + ' ' + suffix;
-          }
-          if (filtersRow && selectionBar) {
-            if (count > 0) {
-              filtersRow.classList.add('d-none');
-              selectionBar.classList.remove('d-none');
-            } else {
-              filtersRow.classList.remove('d-none');
-              selectionBar.classList.add('d-none');
-            }
-          }
-          if (bulkDeleteBtn) bulkDeleteBtn.disabled = count === 0;
-          if (clearSelectionBtn) clearSelectionBtn.disabled = count === 0;
-          const items = Array.from(selectedKeys)
-            .map((key) => selectionPayloadFromRow(findRowByKey(key)))
-            .filter(Boolean);
-          const hasTaggable = items.some((item) => isTaggableType(item.type));
-          const hasDownloadable = items.some((item) => isDownloadableEntity(item));
-          const hasAccessRoleEntities = items.some((item) =>
-            ["table","view","page"].includes(item.type)
-          );
-          const hasWriteRoleEntities = items.some((item) => item.type === "table");
-          if (items.length === 1) {
-            const only = items[0];
-            const row = findRowByKey(only.key);
-            if (row && bulkRoleReadSelect && bulkRoleReadSelect.dataset.userSelected !== 'true') {
-              const initRead =
-                only.type === 'table'
-                  ? row.dataset.minRoleRead || ''
-                  : row.dataset.minRole || '';
-              bulkRoleReadSelect.value = initRead || '';
-            }
-            if (row && bulkRoleWriteSelect && only.type === 'table' && bulkRoleWriteSelect.dataset.userSelected !== 'true') {
-              const initWrite = row.dataset.minRoleWrite || '';
-              bulkRoleWriteSelect.value = initWrite || '';
-            }
-          } else if (items.length === 0) {
-            if (bulkRoleReadSelect) {
-              bulkRoleReadSelect.value = '';
-              resetSelectUserFlag(bulkRoleReadSelect);
-            }
-            if (bulkRoleWriteSelect) {
-              bulkRoleWriteSelect.value = '';
-              resetSelectUserFlag(bulkRoleWriteSelect);
-            }
-          }
-          if (bulkTagSelect) {
-            bulkTagSelect.disabled = !(count > 0 && hasTaggable);
-            syncSelectBorder(bulkTagSelect, '--entity-bulk-tag-border');
-          }
-          if (bulkApplyTagBtn) {
-            const tagSelected = bulkTagSelect && bulkTagSelect.value;
-            bulkApplyTagBtn.disabled = !(count > 0 && hasTaggable && tagSelected);
-          }
-          if (bulkRoleReadSelect) {
-            bulkRoleReadSelect.disabled = !(count > 0 && hasAccessRoleEntities);
-            syncSelectBorder(bulkRoleReadSelect, '--entity-bulk-role-border');
-          }
-          if (bulkApplyRoleReadBtn) {
-            const roleSelected = bulkRoleReadSelect && bulkRoleReadSelect.value;
-            bulkApplyRoleReadBtn.disabled = !(count > 0 && hasAccessRoleEntities && roleSelected);
-          }
-          if (bulkRoleWriteSelect) {
-            bulkRoleWriteSelect.disabled = !(count > 0 && hasWriteRoleEntities);
-            syncSelectBorder(bulkRoleWriteSelect, '--entity-bulk-role-border');
-          }
-          if (bulkApplyRoleWriteBtn) {
-            const roleSelected = bulkRoleWriteSelect && bulkRoleWriteSelect.value;
-            bulkApplyRoleWriteBtn.disabled = !(count > 0 && hasWriteRoleEntities && roleSelected);
-          }
-          if (bulkRoleWriteGroup) {
-            if (hasWriteRoleEntities) bulkRoleWriteGroup.classList.remove('d-none');
-            else bulkRoleWriteGroup.classList.add('d-none');
-          }
-          if (bulkDownloadPackBtn) {
-            // bulkDownloadPackBtn.disabled = !(count > 0 && hasDownloadable);
-            bulkDownloadPackBtn.disabled = !(count > 0);
-          }
-        };
-
-        const clearSelection = () => {
-          selectedKeys.clear();
-          lastSelectedIndex = null;
-          updateSelectionUI();
-        };
-
-        // Track active filters
-        const activeFilters = new Set([]);
-        const activeTags = new Set([]);
-        const isModulesFilterExclusive = () =>
-          activeFilters.size === 1 && activeFilters.has("module");
-        window.isModulesFilterExclusive = isModulesFilterExclusive;
-
-        const isTaggableType = (type) => ["table","view","page","trigger"].includes(type);
-        const isDownloadableEntity = (item) => {
-          if (!item) return false;
-          return ["table","view","page","trigger"].includes(item.type);
-        };
-
-        const updateRowTags = (row, tagId, tagName, entityType) => {
-          if (!row || !tagId) return;
-          const tagsCell = row.querySelector('td:nth-child(6)');
-          if (!tagsCell) return;
-          const dropdown = tagsCell.querySelector('.dropdown');
-          const currentTags = (row.dataset.tags || '').split(' ').filter(Boolean);
-          if (!currentTags.includes(String(tagId))) currentTags.push(String(tagId));
-          row.dataset.tags = currentTags.join(' ');
-          tagsCell.innerHTML = '';
-          const pluralMap = { table: 'tables', view: 'views', page: 'pages', trigger: 'triggers' };
-          currentTags.forEach((tid) => {
-            const name = TAGS_BY_ID[tid] || tagName || tid;
-            const plural = pluralMap[entityType] || 'tables';
-            const badge = document.createElement('a');
-            badge.className = 'badge bg-secondary me-1';
-            badge.setAttribute('href', '/tag/' + encodeURIComponent(tid) + '?show_list=' + plural);
-            badge.textContent = name;
-            tagsCell.appendChild(badge);
-          });
-          if (dropdown) tagsCell.appendChild(dropdown);
-        };
-
-        // URL state helpers
-        const updateUrl = () => {
-          const params = new URLSearchParams(window.location.search);
-          // search
-          if (searchInput.value) params.set('q', searchInput.value);
-          else params.delete('q');
-          if (deepSearchToggle && deepSearchToggle.checked) params.set('deep', 'on');
-          else params.delete('deep');
-          // types
-          ALL_TYPES.forEach(t => {
-            if (activeFilters.has(t)) params.set(t+'s', 'on');
-            else params.delete(t+'s');
-          });
-          // extended flag
-          if (typeof isExtendedExpanded !== 'undefined' && isExtendedExpanded) {
-            params.set('extended', 'on');
-          } else {
-            params.delete('extended');
-          }
-          // tags (comma-separated ids)
-          if (activeTags.size > 0) params.set('tags', Array.from(activeTags).join(','));
-          else params.delete('tags');
-          const newUrl = window.location.pathname + (params.toString() ? ('?' + params.toString()) : '');
-          window.history.replaceState(null, '', newUrl);
-        };
-
-        const getCurrentOnDoneTarget = () => {
-          const path = window.location.pathname.startsWith("/")
-            ? window.location.pathname.slice(1)
-            : window.location.pathname;
-          return path + window.location.search;
-        };
-
-        const shouldSkipOnDoneHref = (raw) => {
-          if (!raw) return true;
-          const trimmed = raw.trim();
-          const lowered = trimmed.toLowerCase();
-          return trimmed === "#" || trimmed === "" || lowered.startsWith("javascript:");
-        };
-
-        const toRelativeHrefWithOnDone = (raw) => {
-          if (shouldSkipOnDoneHref(raw)) return null;
-          try {
-            const url = new URL(raw, window.location.origin);
-            url.searchParams.set("on_done_redirect", getCurrentOnDoneTarget());
-            return url.pathname + url.search + url.hash;
-          } catch (e) {
-            return null;
-          }
-        };
-
-        const updateElementOnDoneHref = (el, attr) => {
-          const raw = el.getAttribute(attr) || el[attr];
-          const updated = toRelativeHrefWithOnDone(raw);
-          if (updated) el.setAttribute(attr, updated);
-        };
-
-        const ensureOnDoneHiddenInput = (form) => {
-          if (form.querySelector('input[name="on_done_redirect"]')) return;
-          const hidden = document.createElement('input');
-          hidden.type = 'hidden';
-          hidden.name = 'on_done_redirect';
-          hidden.value = getCurrentOnDoneTarget();
-          form.appendChild(hidden);
-        };
-
-        const updateOnDoneRedirectTargets = () => {
-          document
-            .querySelectorAll('a[href*="on_done_redirect="]')
-            .forEach((link) => updateElementOnDoneHref(link, "href"));
-          document
-            .querySelectorAll('form[action*="on_done_redirect="]')
-            .forEach((form) => updateElementOnDoneHref(form, "action"));
-        };
-
-        const updateLegacyButton = () => {
-          const legacyButton = document.getElementById("legacy-entity-link");
-          const legacyLabel = legacyButton ? legacyButton.querySelector(".legacy-label") : null;
-          if (!legacyButton) return;
-          const activeTypes = Array.from(activeFilters);
-          if (activeTypes.length === 1) {
-            const meta = LEGACY_LINK_META[activeTypes[0]];
-            if (meta) {
-              legacyButton.classList.remove("d-none");
-              legacyButton.setAttribute("href", meta.href);
-              if (legacyLabel) legacyLabel.textContent = meta.label;
-              return;
-            }
-          }
-          legacyButton.classList.add("d-none");
-        };
-
-        const initFromUrl = () => {
-          const params = new URLSearchParams(window.location.search);
-          // search
-          const q = params.get('q') || '';
-          if (q) searchInput.value = q;
-          const deep = params.get('deep') === 'on';
-          if (deep && deepSearchToggle) deepSearchToggle.checked = true;
-          const shouldExpandExtended =
-            params.get('extended') === 'on' ||
-            EXTENDED_TYPES.some((t) => params.get(t + 's') === 'on');
-          // types
-          ALL_TYPES.forEach(t => {
-            if (params.get(t+'s') === 'on') activeFilters.add(t);
-          });
-          // apply button classes for types
-          filterButtons.forEach((btn) => {
-            const t = btn.dataset.entityType;
-            if (activeFilters.has(t)) {
-              btn.classList.add('btn-primary');
-              btn.classList.remove('btn-outline-primary');
-            }
-          });
-          // tags
-          const tagsParam = params.get('tags');
-          if (tagsParam) {
-            tagsParam.split(',').filter(Boolean).forEach(id => activeTags.add(id));
-          }
-          // apply button classes for tags
-          tagButtons.forEach((btn) => {
-            const id = btn.dataset.tagId;
-            if (activeTags.has(id)) {
-              btn.classList.add('active', 'btn-secondary');
-              btn.classList.remove('btn-outline-secondary');
-            }
-          });
-          return { shouldExpandExtended };
-        };
-
-        // Filter function
-        function filterEntities() {
-          const entityRows = document.querySelectorAll(".entity-row");
-          const searchTerm = searchInput.value.toLowerCase();
-          const useDeep = deepSearchToggle && deepSearchToggle.checked;
-          let visibleCount = 0;
-          const visibleKeys = new Set();
-          const allowAllModules = isModulesFilterExclusive();
-          const canShowAllModules =
-            allowAllModules && typeof isExtendedExpanded !== "undefined" && isExtendedExpanded;
-          if (
-            canShowAllModules &&
-            typeof ensureAllModulesLoaded === "function" &&
-            typeof hasLoadedAllModules !== "undefined" &&
-            !hasLoadedAllModules
-          ) {
-            ensureAllModulesLoaded();
-          }
-
-          entityRows.forEach((row, id) => {
-            const entityType = row.dataset.entityType;
-            const key = row.dataset.entityKey;
-            const deepText =
-              useDeep && window.ENTITY_DEEP_SEARCH
-                ? window.ENTITY_DEEP_SEARCH[key]
-                : null;
-            const searchableText = useDeep ? deepText || row.dataset.deepSearchable || "" : row.dataset.searchable || "";
-
-            const rowTags = (row.dataset.tags || "").split(" ").filter(Boolean);
-            const rowInstalled = row.dataset.installed !== "false";
-
-            // Check if entity type is active
-            const typeMatch = activeFilters.has(entityType);
-
-            // Check if search term matches
-            let searchMatch = true;
-            if (searchTerm) {
-              searchMatch = searchableText.includes(searchTerm);
-            }
-
-            // Check tag match (OR across selected tags). If none selected, match all
-            let tagMatch = true;
-            if (activeTags.size > 0) {
-              tagMatch = rowTags.some((tid) => activeTags.has(tid));
-            }
-
-            const moduleVisibilityOk =
-              entityType !== "module" || rowInstalled || canShowAllModules;
-
-            // Show/hide row
-            if (
-              (activeFilters.size === 0 || typeMatch) &&
-              searchMatch &&
-              tagMatch &&
-              moduleVisibilityOk
-            ) {
-              row.style.display = "";
-              visibleKeys.add(row.dataset.entityKey);
-              visibleCount++;
-            } else {
-              row.style.display = "none";
-            }
-          });
-
-          selectedKeys.forEach((key) => {
-            if (!visibleKeys.has(key)) selectedKeys.delete(key);
-          });
-
-          // Show/hide no results message
-          if (visibleCount === 0) {
-            entitiesList.parentElement.classList.add("d-none");
-            noResults.classList.remove("d-none");
-          } else {
-            entitiesList.parentElement.classList.remove("d-none");
-            noResults.classList.add("d-none");
-          }
-
-          updateUrl();
-          updateOnDoneRedirectTargets();
-          updateLegacyButton();
-          updateSelectionUI();
-        }
-
-        // Search input handler
-        searchInput.addEventListener("input", filterEntities);
-        searchInput.addEventListener("keydown", (e) => {
-          if (e.key === "Escape" || e.key === "Esc") {
-            e.preventDefault();
-            searchInput.blur();
-          }
-        });
-        if (deepSearchToggle) {
-          deepSearchToggle.addEventListener("change", filterEntities);
-        }
-
-        // Filter button handlers
-        filterButtons.forEach((btn) => {
-          btn.addEventListener("click", function () {
-            const entityType = this.dataset.entityType;
-
-            if (!activeFilters.has(entityType)) {
-              activeFilters.add(entityType);
-              this.classList.add("btn-primary");
-              this.classList.remove("btn-outline-primary");
-            } else {
-              activeFilters.delete(entityType);
-              this.classList.remove("btn-primary");
-              this.classList.add("btn-outline-primary");
-            }
-
-            filterEntities();
-            if (searchInput && typeof searchInput.focus === 'function') {
-              searchInput.focus({ preventScroll: true });
-            }
-          });
-        });
-
-        // Tag filter handlers (multi-select, OR). No "All" button needed
-        tagButtons.forEach((btn) => {
-          btn.addEventListener("click", function () {
-            const tid = this.dataset.tagId;
-            if (!activeTags.has(tid)) {
-              activeTags.add(tid);
-              this.classList.add("active", "btn-secondary");
-              this.classList.remove("btn-outline-secondary");
-            } else {
-              activeTags.delete(tid);
-              this.classList.remove("active", "btn-secondary");
-              this.classList.add("btn-outline-secondary");
-            }
-            filterEntities();
-          });
-        });
-
-        const keyboardShortcutTypeMap = {
-          KeyT: "table",
-          KeyV: "view",
-          KeyP: "page",
-          KeyR: "trigger",
-          KeyM: "module",
-          KeyU: "user",
-        };
-
-        document.addEventListener("keydown", async (e) => {
-          const isFromSearchInput = e.target === searchInput;
-          const typingTarget = isTypingTarget(e.target);
-
-          if (e.altKey && !e.ctrlKey && !e.metaKey) {
-            const type = keyboardShortcutTypeMap[e.code];
-            if (type) {
-              e.preventDefault();
-              const isExtendedType = EXTENDED_TYPES.includes(type);
-              if (
-                isExtendedType &&
-                typeof isExtendedExpanded !== "undefined" &&
-                !isExtendedExpanded &&
-                typeof toggleEntityExpanded === "function"
-              ) {
-                await toggleEntityExpanded(true);
-              }
-              const btn = filterButtonsByType[type];
-              if (btn) {
-                btn.click();
-                if (searchInput && typeof searchInput.focus === 'function') {
-                  searchInput.focus({ preventScroll: true });
-                }
-              }
-              return;
-            }
-            if (deepSearchToggle && e.code === "KeyS") {
-              e.preventDefault();
-              deepSearchToggle.checked = !deepSearchToggle.checked;
-              filterEntities();
-              if (searchInput && typeof searchInput.focus === 'function') {
-                searchInput.focus({ preventScroll: true });
-              }
-            }
-            return;
-          }
-          if (typingTarget && !isFromSearchInput) return;
-
-          const isSelectAllKey = e.key === "a" || e.key === "A";
-          if ((e.metaKey || e.ctrlKey) && !e.altKey && isSelectAllKey) {
-            const visibleRows = getSelectableVisibleRows();
-            if (!visibleRows.length) return;
-            e.preventDefault();
-            visibleRows.forEach((row) => {
-              const key = row.dataset.entityKey;
-              if (key) selectedKeys.add(key);
-            });
-            lastSelectedIndex = visibleRows.length - 1;
-            updateSelectionUI();
-          }
-        });
-
-        if (clearSelectionBtn) {
-          clearSelectionBtn.addEventListener('click', () => {
-            clearSelection();
-            filterEntities();
-          });
-        }
-
-        if(bulkTagSelect) {
-          bulkTagSelect.addEventListener('change', () => updateSelectionUI());
-        }
-
-        if (bulkRoleReadSelect) {
-          bulkRoleReadSelect.addEventListener('change', () => {
-            markSelectChangedByUser(bulkRoleReadSelect);
-            updateSelectionUI();
-          });
-        }
-
-        if (bulkRoleWriteSelect) {
-          bulkRoleWriteSelect.addEventListener('change', () => {
-            markSelectChangedByUser(bulkRoleWriteSelect);
-            updateSelectionUI();
-          });
-        }
-
-        const doBulkApplyTag = async () => {
-          if(!bulkApplyTagBtn || !bulkTagSelect) return;
-          const tagId = bulkTagSelect.value;
-          if (!tagId) return;
-          const items = collectSelectionItems().filter((item) => isTaggableType(item.type));
-          if (!items.length) return;
-          bulkApplyTagBtn.disabled = true;
-          try {
-            const res = await fetch('/entities/bulk-apply-tag', {
-              method: 'POST',
-              headers: {
-                "Content-Type": "application/json",
-                'CSRF-Token': window._sc_globalCsrf || '',
-              },           
-              body: JSON.stringify({ tag_id: tagId, items }),
-            });
-            if (!res.ok) throw new Error(await res.text());
-            await res.json();
-            const tagName = TAGS_BY_ID[tagId] || '';
-            items.forEach((item) => {
-              const row = findRowByKey(item.key);
-              if (row) updateRowTags(row, tagId, tagName, item.type);
-            });
-            filterEntities();
-          } catch (e) {
-            console.error('Failed to apply tag to selected items', e);
-            alert("Failed to apply tag to selected items");
-          }
-          bulkApplyTagBtn.disabled = false;
-        };
-
-        if(bulkApplyTagBtn) {
-          bulkApplyTagBtn.addEventListener('click', doBulkApplyTag);
-        }
-
-        const triggerDownload = (filename, content) => {
-          const blob = new Blob([content], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = filename;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
-        };
-
-        const doBulkDownloadPack = async () => {
-          if (!bulkDownloadPackBtn) return;
-          const items = collectSelectionItems()
-          // .filter((item) => isDownloadableEntity(item));
-          if (!items.length) return;
-          bulkDownloadPackBtn.disabled = true;
-          try {
-            const res = await fetch('/entities/download-pack', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'CSRF-Token': window._sc_globalCsrf || '',
-              },
-              body: JSON.stringify({ items }),
-            });
-            if (!res.ok) throw new Error(await res.text());
-            const payload = await res.json();
-            if (Array.isArray(payload?.packs)) {
-              payload.packs.forEach((pack) => {
-                if (pack && pack.name && pack.content) {
-                  const content =
-                    typeof pack.content === 'string'
-                      ? pack.content
-                      : JSON.stringify(pack.content, null, 2);
-                  triggerDownload(pack.name + '.json', content);
-                }
-              });
-            }
-          } catch (e) {
-            console.error('Failed to download pack(s)', e);
-            alert("Failed to download pack for selected items");
-          }
-          bulkDownloadPackBtn.disabled = false;
-        };
-
-        if (bulkDownloadPackBtn) {
-          bulkDownloadPackBtn.addEventListener('click', doBulkDownloadPack);
-        }
-
-        if (bulkApplyRoleReadBtn) {
-          bulkApplyRoleReadBtn.addEventListener('click', () => doBulkApplyRole('read'));
-        }
-
-        if (bulkApplyRoleWriteBtn) {
-          bulkApplyRoleWriteBtn.addEventListener('click', () => doBulkApplyRole('write'));
-        }
-
-        const collectSelectionItems = () =>
-          Array.from(selectedKeys)
-            .map((key) => selectionPayloadFromRow(findRowByKey(key)))
-            .filter(Boolean);
-
-        const getRoleName = (rid) => {
-          if (typeof rid === 'undefined') return '';
-          const key = String(rid);
-          if (!ROLES_BY_ID) return '';
-          return Object.prototype.hasOwnProperty.call(ROLES_BY_ID, key) ? ROLES_BY_ID[key] : '?';
-        };
-
-        const toNumberOrUndefined = (val) => {
-          if (val === '' || typeof val === 'undefined' || val === null) return undefined;
-          const num = Number(val);
-          return Number.isNaN(num) ? undefined : num;
-        };
-
-        const updateRowAccess = (row, payload) => {
-          if (!row) return;
-          if (typeof payload.min_role_read !== 'undefined') row.dataset.minRoleRead = String(payload.min_role_read ?? '');
-          if (typeof payload.min_role_write !== 'undefined') row.dataset.minRoleWrite = String(payload.min_role_write ?? '');
-          if (typeof payload.min_role !== 'undefined') row.dataset.minRole = String(payload.min_role ?? '');
-          const cell = row.querySelector('td:nth-child(5)');
-          if (cell) {
-            const label = (() => {
-              if (payload.type === 'table') {
-                const ext = row.dataset.external === 'true';
-                const rr = toNumberOrUndefined(payload.min_role_read);
-                const rw = toNumberOrUndefined(payload.min_role_write);
-                if (ext) return getRoleName(rr) + " (read only)";
-                if (typeof rr !== 'undefined' && typeof rw !== 'undefined') return getRoleName(rr) + "/" + getRoleName(rw);
-                return '';
-              }
-              const mr = toNumberOrUndefined(payload.min_role);
-              return typeof mr !== 'undefined' ? getRoleName(mr) : '';
-            })();
-            cell.textContent = label;
-          }
-        };
-
-        const doBulkApplyRole = async (mode) => {
-          const isWriteMode = mode === 'write';
-          const selectEl = isWriteMode ? bulkRoleWriteSelect : bulkRoleReadSelect;
-          const buttonEl = isWriteMode ? bulkApplyRoleWriteBtn : bulkApplyRoleReadBtn;
-          if (!selectEl || !buttonEl) return;
-          const roleId = selectEl.value;
-          if (!roleId) return;
-          const items = collectSelectionItems().filter((item) => {
-            if (isWriteMode) return item.type === 'table';
-            return ['table', 'view', 'page'].includes(item.type);
-          });
-          if (!items.length) return;
-          buttonEl.disabled = true;
-          try {
-            const res = await fetch('/entities/bulk-set-role', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'CSRF-Token': window._sc_globalCsrf || '',
-              },
-              body: JSON.stringify({ items, role_id: roleId, mode }),
-            });
-            if (!res.ok) throw new Error(await res.text());
-            const payload = await res.json();
-            const updatedKeys = new Set(payload?.updatedKeys || []);
-            const errors = payload?.errors || [];
-            if (errors.length) {
-              console.error('Failed to set role for some items', errors);
-              alert('Failed to set role for some selected items');
-            }
-            items.forEach((item) => {
-              if (updatedKeys.size && !updatedKeys.has(item.key)) return;
-              const row = findRowByKey(item.key);
-              if (!row) return;
-              if (isWriteMode && item.type === 'table') {
-                updateRowAccess(row, { type: 'table', min_role_write: Number(roleId), min_role_read: toNumberOrUndefined(row.dataset.minRoleRead) });
-              } else if (!isWriteMode) {
-                if (item.type === 'table') {
-                  updateRowAccess(row, { type: 'table', min_role_read: Number(roleId), min_role_write: toNumberOrUndefined(row.dataset.minRoleWrite) });
-                } else if (item.type === 'view') {
-                  updateRowAccess(row, { type: 'view', min_role: Number(roleId) });
-                } else if (item.type === 'page') {
-                  updateRowAccess(row, { type: 'page', min_role: Number(roleId) });
-                }
-              }
-            });
-          } catch (e) {
-            console.error('Failed to set role for selected items', e);
-            alert('Failed to set role for selected items');
-          }
-          buttonEl.disabled = false;
-          updateSelectionUI();
-        };
-
-        const formatDeleteError = (err) => {
-          const displayType = err?.isPack
-            ? "Pack"
-            : (() => {
-                const t = (err?.type || "").toString();
-                if (!t) return "Item";
-                return t.charAt(0).toUpperCase() + t.slice(1);
-              })();
-          const label = err?.name || err?.id || err?.key || "(unknown)";
-          const message = err?.message || TXT_DELETE_FAILED || "Failed to delete selected items";
-          return displayType + " (" + label + "): " + message;
-        };
-
-        const showBulkDeleteErrors = (errs) => {
-          if (!errs || !errs.length) return;
-          const body = errs
-            .map((e) => formatDeleteError(e))
-            .join("\\n-----\\n");
-          alert(body);
-        };
-
-        const removeRowsByKeys = (keysToRemove) => {
-          if (!keysToRemove || !keysToRemove.size) return;
-          document.querySelectorAll('.entity-row').forEach((row) => {
-            if (keysToRemove.has(row.dataset.entityKey)) row.remove();
-          });
-        };
-
-        const refreshExtendedEntitiesAfterDelete = async () => {
-          if (typeof isExtendedExpanded !== 'undefined' && !isExtendedExpanded) return;
-          if (typeof loadExtendedEntities !== 'function' || typeof renderExtendedEntityRows !== 'function') return;
-          const tbody = document.querySelector('#entities-list tbody');
-          if (!tbody) return;
-          const shouldLoadAll = typeof window.isModulesFilterExclusive === 'function'
-            ? window.isModulesFilterExclusive()
-            : false;
-          try {
-            const extendedEntities = await loadExtendedEntities(shouldLoadAll);
-            window.extendedEntities = extendedEntities;
-            renderExtendedEntityRows(extendedEntities, tbody);
-          } catch (err) {
-            console.error('Failed to refresh extended entities after delete:', err);
-          }
-        };
-
-        if (bulkDeleteBtn) {
-          bulkDeleteBtn.addEventListener('click', async () => {
-            const items = collectSelectionItems();
-            if (!items.length) return;
-            const template = TXT_DELETE_SELECTED_CONFIRM || TXT_DELETE_SELECTED_FALLBACK;
-            const msg = template.includes('%s')
-              ? template.replace('%s', items.length)
-              : template;
-            if (!window.confirm(msg)) return;
-            bulkDeleteBtn.disabled = true;
-            try {
-              const res = await fetch('/entities/bulk-delete', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'CSRF-Token': window._sc_globalCsrf || '',
-                },
-                body: JSON.stringify({ items }),
-              });
-              if (!res.ok) throw new Error(await res.text());
-              const payload = await res.json();
-              const keysToRemove = new Set(
-                (payload.deletedKeys && payload.deletedKeys.length
-                  ? payload.deletedKeys
-                  : items.map((i) => i.key))
-              );
-              removeRowsByKeys(keysToRemove);
-              if (payload.errors && payload.errors.length) {
-                console.error('Bulk delete errors', payload.errors);
-                showBulkDeleteErrors(payload.errors);
-              }
-              clearSelection();
-              await refreshExtendedEntitiesAfterDelete();
-              filterEntities();
-            } catch (e) {
-              console.error(e);
-              alert(TXT_DELETE_FAILED || 'Failed to delete selected items');
-            }
-            bulkDeleteBtn.disabled = false;
-          });
-        }
-
-        if (entitiesTbody) {
-          entitiesTbody.addEventListener('click', (e) => {
-            const row = e.target.closest('.entity-row');
-            if (!row) return;
-            if (e.target.closest('a, button, input, select, textarea, label'))
-              return;
-            if (!isRowSelectable(row)) {
-              lastSelectedIndex = null;
-              return;
-            }
-            const visibleRows = getSelectableVisibleRows();
-            const index = visibleRows.indexOf(row);
-            const key = row.dataset.entityKey;
-            if (!key) return;
-            const isShift = e.shiftKey;
-            const isMeta = e.metaKey || e.ctrlKey;
-
-            if (isShift && lastSelectedIndex !== null && visibleRows[lastSelectedIndex]) {
-              selectedKeys.clear();
-              const start = Math.min(lastSelectedIndex, index);
-              const end = Math.max(lastSelectedIndex, index);
-              for (let i = start; i <= end; i++) {
-                const rangeKey = visibleRows[i].dataset.entityKey;
-                if (rangeKey) selectedKeys.add(rangeKey);
-              }
-            } else if (isMeta) {
-              if (selectedKeys.has(key)) {
-                selectedKeys.delete(key);
-              } else {
-                selectedKeys.add(key);
-              }
-              lastSelectedIndex = index;
-            } else {
-              const onlyThisSelected = selectedKeys.size === 1 && selectedKeys.has(key);
-              selectedKeys.clear();
-              if (!onlyThisSelected) {
-                selectedKeys.add(key);
-                lastSelectedIndex = index;
-              } else {
-                lastSelectedIndex = null;
-              }
-            }
-            updateSelectionUI();
-          });
-        }
-
-        // Init from URL and run first filter
-        const { shouldExpandExtended } = initFromUrl();
-        if (shouldExpandExtended) {
-          toggleEntityExpanded(true);
-        } else {
-          filterEntities();
-        }
-        // Focus search on load
-        searchInput.focus();
-        updateSelectionUI();
-        setTimeout(updateLegacyButton,200);
-      `;
 
     const styles = `
       <style>
@@ -2241,6 +1333,26 @@ router.get(
         #entity-less-btn:not(.d-none) {
           max-width: 80px;
         }
+        .entity-section-header-row td {
+          padding: 3px 8px;
+          font-size: 0.7rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+          color: var(--bs-secondary-color, #6c757d);
+          background: var(--bs-secondary-bg, #f8f9fa);
+          border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+          user-select: none;
+        }
+        .entity-row-recent td { opacity: 0.88; }
+        @keyframes entity-row-flash {
+          0%   { background-color: var(--bs-warning-bg-subtle, #fff3cd); }
+          100% { background-color: var(--bs-table-bg, transparent); }
+        }
+        #entities-list .entity-row-flash > td,
+        #entities-list .entity-row-flash > th {
+          animation: entity-row-flash 2.5s ease-out;
+        }
       </style>
     `;
 
@@ -2267,8 +1379,8 @@ router.get(
                   noResultsMessage
                 )
               ),
-              // clientScript,
-              script(/*js*/ `
+              script(
+                domReady(/*js*/ `
         window.ENTITY_ROLES = ${JSON.stringify(roles)};
         window.TXT_DISABLED = ${JSON.stringify(req.__("Disabled"))};
         window.TXT_CONFIGURABLE = ${JSON.stringify(req.__("Configurable"))};
@@ -2280,311 +1392,20 @@ router.get(
         window.TXT_INFO = ${JSON.stringify(req.__("Info"))};
         window.TXT_AUTH = ${JSON.stringify(req.__("Authentication"))};
         window.TXT_MOBILE = ${JSON.stringify(req.__("Mobile"))};
-        window.ENTITY_DEEP_SEARCH = ${JSON.stringify(deepSearchIndex)};
+        window.ENTITY_DEEP_SEARCH = null;
 
-        document.querySelector("#entities-list tbody").style.opacity = "1";
-
-        const EXTENDED_ENTITY_TYPES = ["module","user"];
-        window.ENTITY_EXTENDED_TYPES = EXTENDED_ENTITY_TYPES;
-        let isExtendedExpanded = false;
-        let hasLoadedAllModules = false;
-        let isLoadingAllModules = false;
-        const clearExtendedTypeFilters = () => {
-          if (typeof activeFilters === 'undefined') return;
-          EXTENDED_ENTITY_TYPES.forEach((type) => {
-            if (activeFilters.has(type)) {
-              activeFilters.delete(type);
-              const btn = document.querySelector('.entity-filter-btn[data-entity-type="' + type + '"]');
-              if (btn) {
-                btn.classList.remove('btn-primary');
-                btn.classList.add('btn-outline-primary');
-              }
-            }
-          });
-        };
-        // Fetch extended entities via AJAX
-        const loadExtendedEntities = async (includeAllModules = false) => {
-          try {
-            const query = includeAllModules ? '?include_all_modules=1' : '';
-            const res = await fetch('/entities/extended' + query);
-            const data = await res.json();
-            return data.entities || [];
-          } catch (e) {
-            console.error('Failed to load extended entities:', e);
-            return [];
-          }
-        };
-
-        const renderExtendedEntityRows = (extendedEntities, tbody) => {
-          document
-            .querySelectorAll('[data-is-extended]')
-            .forEach((row) => row.remove());
-          extendedEntities.forEach((entity) => {
-            const row = createExtendedEntityRow(entity);
-            tbody.appendChild(row);
-          });
-          if (typeof updateSelectionUI === 'function') updateSelectionUI();
-        };
-
-        const ensureAllModulesLoaded = async () => {
-          if (hasLoadedAllModules || isLoadingAllModules) return;
-          if (!isExtendedExpanded) return;
-          isLoadingAllModules = true;
-          let updated = false;
-          try {
-            const extendedEntities = await loadExtendedEntities(true);
-            window.extendedEntities = extendedEntities;
-            const tbody = document.querySelector('#entities-list tbody');
-            renderExtendedEntityRows(extendedEntities, tbody);
-            hasLoadedAllModules = true;
-            updated = true;
-          } catch (e) {
-            console.error('Failed to load all modules:', e);
-          } finally {
-            isLoadingAllModules = false;
-            if (updated && typeof filterEntities === 'function') filterEntities();
-          }
-        };
-
-        // Toggle expanded state
-        window.toggleEntityExpanded = async (expand) => {
-          const moreBtn = document.getElementById('entity-more-btn');
-          const lessBtn = document.getElementById('entity-less-btn');
-          const extendedButtons = document.querySelectorAll('.entity-extended-btn');
-          const tbody = document.querySelector('#entities-list tbody');
-          
-          if (expand) {
-            if (isExtendedExpanded) return;
-            extendedButtons.forEach(btn => btn.classList.remove('d-none'));
-            moreBtn.classList.add('d-none');
-            lessBtn.classList.remove('d-none');
-            isExtendedExpanded = true;
-            const shouldLoadAll = typeof window.isModulesFilterExclusive === 'function'
-              ? window.isModulesFilterExclusive()
-              : false;
-            // Load extended entities
-            const extendedEntities = await loadExtendedEntities(shouldLoadAll);
-            window.extendedEntities = extendedEntities;
-            renderExtendedEntityRows(extendedEntities, tbody);
-            hasLoadedAllModules = shouldLoadAll;
-            filterEntities();
-          } else {
-            if (!isExtendedExpanded) return;
-            extendedButtons.forEach(btn => btn.classList.add('d-none'));
-            moreBtn.classList.remove('d-none');
-            lessBtn.classList.add('d-none');
-            isExtendedExpanded = false;
-            hasLoadedAllModules = false;
-            isLoadingAllModules = false;
-            window.extendedEntities = [];
-            renderExtendedEntityRows([], tbody);
-            clearExtendedTypeFilters();
-            // Update filter
-            filterEntities();
-          }
-        };
-
-        // Helper to create entity row for extended entities
-        const createExtendedEntityRow = (entity) => {
-          const tr = document.createElement('tr');
-          tr.className = 'entity-row';
-          tr.dataset.entityType = entity.type;
-          tr.dataset.entityName = entity.name.toLowerCase();
-          if (entity.id) {
-            tr.dataset.entityId = entity.id;
-          } else {
-            tr.dataset.entityId = '';
-          }
-          tr.dataset.entityLabel = entity.name;
-          const key = entity.type + ':' + (entity.type === 'module' ? entity.name : entity.id);
-          tr.dataset.entityKey = key;
-          let searchable = ((entity.name || '').toLowerCase() + ' ' + entity.type).trim();
-          if (entity.metadata) {
-            Object.keys(entity.metadata).forEach((key) => {
-              const val = entity.metadata[key];
-              const shouldSkipDescription =
-                entity.type === 'module' && key === 'description';
-              const shouldSkipForSearchable =
-                entity.type === 'user' && key === 'username';
-              if (!shouldSkipDescription && !shouldSkipForSearchable && val && typeof val === 'string') {
-                searchable += ' ' + val.toLowerCase();
-              }
-            });
-          }
-          tr.dataset.tags = '';
-          tr.dataset.isExtended = 'true';
-          tr.dataset.installed =
-            entity.metadata && entity.metadata.installed === false
-              ? 'false'
-              : 'true';
-          tr.dataset.moduleKind = entity.metadata && entity.metadata.type ? entity.metadata.type : '';
-
-          if (!isRowSelectable(tr)) {
-            tr.classList.add('entity-row-selection-disabled');
-            tr.setAttribute('aria-disabled', 'true');
-          }
-          
-          // Type badge
-          const badges = {
-            module: { class: "secondary", icon: "cube", label: "Module" },
-            user: { class: "dark", icon: "user", label: "User" },
-          };
-          const badge = badges[entity.type];
-          const typeBadge = document.createElement('td');
-          typeBadge.innerHTML = '<span class="badge bg-' + badge.class + ' me-2"><i class="fas fa-' + badge.icon + ' me-1"></i>' + badge.label + '</span>';
-          tr.appendChild(typeBadge);
-
-          const hasConfig = entity.metadata && entity.metadata.hasConfig;
-          const isInstalled = entity.metadata && entity.metadata.installed;
-          
-          // Name
-          const nameTd = document.createElement('td');
-          const isStaticModule = entity.type === 'module' && !hasConfig;
-          const nameLink = document.createElement(isStaticModule ? 'span' : 'a');
-          if (!isStaticModule) {
-            const baseHref = entity.editLink || '#';
-            const updatedHref = toRelativeHrefWithOnDone(baseHref);
-            nameLink.setAttribute('href', updatedHref || baseHref);
-          }
-          nameLink.className = 'fw-bold';
-          nameLink.textContent = entity.name;
-          nameTd.appendChild(nameLink);
-          tr.appendChild(nameTd);
-          
-          // Run cell (info link for modules)
-          const runTd = document.createElement('td');
-          if (
-            entity.type === 'module' &&
-            entity.metadata &&
-            entity.metadata.type !== 'pack' &&
-            entity.viewLink &&
-            isInstalled
-          ) {
-            const infoLink = document.createElement('a');
-            infoLink.className = 'link-primary text-decoration-none';
-            infoLink.innerHTML = 
-            // '<i class="fas fa-info-circle me-1"></i>' +
-              (window.TXT_INFO || 'Info');
-            const updatedInfoHref = toRelativeHrefWithOnDone(entity.viewLink);
-            infoLink.setAttribute('href', updatedInfoHref || entity.viewLink);
-            runTd.appendChild(infoLink);
-          }
-          tr.appendChild(runTd);
-          
-          // Details cell
-          const detailsTd = document.createElement('td');
-          let detailsHtml = '';
-          if (entity.type === 'user') {
-            const disabled = entity.metadata && entity.metadata.disabled;
-            const roleId = entity.metadata && entity.metadata.role_id;
-            if (Array.isArray(window.ENTITY_ROLES)) {
-              const role = window.ENTITY_ROLES.find(function (r) {
-                return String(r.id) === String(roleId);
-              });
-              if (role && role.role) {
-                detailsHtml += '<span class="text-muted small me-2">' + role.role + '</span>';
-              }
-            }
-            if (disabled) {
-              detailsHtml += '<span class="badge bg-danger me-1">' + (window.TXT_DISABLED || 'Disabled') + '</span>';
-              searchable += ' disabled';
-            }
-          } else if (entity.type === 'module') {
-            const version = entity.metadata && entity.metadata.version;
-            const hasTheme = entity.metadata && entity.metadata.has_theme;
-            const hasAuth = entity.metadata && entity.metadata.has_auth;
-            const isReadyForMobile = entity.metadata && entity.metadata.ready_for_mobile;
-            const isLocal = entity.metadata && entity.metadata.local;
-            const isPack = entity.metadata && entity.metadata.type === 'pack';
-            if (version) {
-              detailsHtml += '<span class="text-muted small me-2">v' + version + '</span>';
-            }
-            if (isPack) {
-              detailsHtml += '<span class="badge bg-secondary me-1">' + (window.TXT_PACK || 'Pack') + '</span>';
-            }
-            if (hasTheme) {
-              detailsHtml += '<span class="badge bg-secondary me-1">' + (window.TXT_THEME || 'Theme') + '</span>';
-              searchable += ' theme';
-            }
-            if (isLocal) {
-              detailsHtml += '<span class="badge bg-secondary me-1">' + (window.TXT_LOCAL || 'Local') + '</span>';
-              searchable += ' local';
-            } 
-            if (isInstalled) {
-              detailsHtml += '<span class="badge bg-secondary me-1">' + (window.TXT_INSTALLED || 'Installed') + '</span>';
-              searchable += ' installed';
-            }
-            if (hasAuth) {
-              detailsHtml += '<span class="badge bg-secondary me-1">' + (window.TXT_AUTH || 'Authentication') + '</span>';
-              searchable += ' authentication auth';
-            }
-            if (isReadyForMobile) {
-              detailsHtml += '<span class="badge bg-secondary me-1">' + (window.TXT_MOBILE || 'Mobile') + '</span>';
-              searchable += ' mobile';
-            }
-          }
-          if (detailsHtml) detailsTd.innerHTML = detailsHtml;
-          tr.appendChild(detailsTd);
-          
-          // Access cell (empty for extended entities)
-          const accessTd = document.createElement('td');
-          tr.appendChild(accessTd);
-          
-          // Tags cell
-          const tagsTd = document.createElement('td');
-          tr.appendChild(tagsTd);
-          
-          // Actions cell (empty for extended entities)
-          const actionsTd = document.createElement('td');
-          if (entity.actionsHtml) {
-            actionsTd.innerHTML = entity.actionsHtml;
-            actionsTd
-              .querySelectorAll('a')
-              .forEach((link) => {
-                const href = link.getAttribute('href');
-                const updated = toRelativeHrefWithOnDone(href);
-                if (updated) link.setAttribute('href', updated);
-              });
-            actionsTd
-              .querySelectorAll('form')
-              .forEach((form) => {
-                const action = form.getAttribute('action');
-                const updated = toRelativeHrefWithOnDone(action);
-                if (updated) form.setAttribute('action', updated);
-                if (entity.type === 'user') ensureOnDoneHiddenInput(form);
-              });
-            const dropdownToggle = actionsTd.querySelector('[data-bs-toggle="dropdown"]');
-            if (dropdownToggle && window.bootstrap && window.bootstrap.Dropdown) {
-              window.bootstrap.Dropdown.getOrCreateInstance(dropdownToggle);
-            }
-          }
-          tr.appendChild(actionsTd);
-
-          tr.dataset.searchable = searchable.trim();
-          let deepSearchable = (entity.deepSearchable || searchable).trim();
-          if (entity.type === 'module') {
-            const description =
-              entity.metadata && typeof entity.metadata.description === 'string'
-                ? entity.metadata.description.toLowerCase()
-                : '';
-            if (description && !deepSearchable.includes(description)) {
-              deepSearchable = (deepSearchable + ' ' + description).trim();
-            }
-          } else if (entity.type === 'user' && entity.metadata && typeof entity.metadata.username === 'string') {
-            const usernameLower = entity.metadata.username.toLowerCase();
-            if (!deepSearchable.includes(usernameLower)) {
-              deepSearchable = (deepSearchable + ' ' + usernameLower).trim();
-            }
-          }
-          tr.dataset.deepSearchable = deepSearchable;
-          if (window.ENTITY_DEEP_SEARCH) {
-            window.ENTITY_DEEP_SEARCH[key] = tr.dataset.deepSearchable;
-          }
-          return tr;
-        };
-
-        ${clientScript}
-        `),
+        document.getElementById("entities-main-body").style.opacity = "1";
+        entitiesListInit({
+          LEGACY_LINK_META: ${JSON.stringify(legacyLinkMeta)},
+          TAGS_BY_ID: ${JSON.stringify(Object.fromEntries(tags.map((t) => [t.id, t.name])))},
+          ROLES_BY_ID: ${JSON.stringify(Object.fromEntries(roles.map((r) => [r.id, r.role])))},
+          TXT_SELECTED: ${JSON.stringify(req.__("selected"))},
+          TXT_DELETE_SELECTED_CONFIRM: ${JSON.stringify(req.__("Delete %s selected items?"))},
+          TXT_DELETE_SELECTED_FALLBACK: ${JSON.stringify(req.__("Delete selected items?"))},
+          TXT_DELETE_FAILED: ${JSON.stringify(req.__("Failed to delete selected items"))},
+        });
+        `)
+              ),
             ],
             footer: div(
               {
@@ -2850,7 +1671,6 @@ router.post(
           const view =
             (id !== null ? View.findOne({ id }) : null) ||
             View.findOne({ name: item?.name });
-          console.log({ view });
           if (!view) throw new Error("View not found");
           if (view.id && typeof view.id !== "undefined") {
             await View.update({ min_role: roleIdNum }, id);
