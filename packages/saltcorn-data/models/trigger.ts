@@ -129,7 +129,7 @@ class Trigger implements AbstractTrigger {
   static async findAllWithTableName(): Promise<Trigger[]> {
     const schema = db.getTenantSchemaPrefix();
 
-    const sql = `select a.id, a.name, a.action, t.name as table_name, a. when_trigger, a.channel, a.min_role 
+    const sql = `select a.id, a.name, a.action, t.name as table_name, a. when_trigger, a.channel, a.updated_at, a.min_role 
     from ${schema}_sc_triggers a left join ${schema}_sc_tables t on t.id=table_id order by lower(a.name)`;
     const { rows } = await db.query(sql);
     return rows.map((dbf: any) => new Trigger(dbf));
