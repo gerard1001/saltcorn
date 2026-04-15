@@ -2027,9 +2027,7 @@ router.post(
   error_catcher(async (req, res) => {
     const newPath = File.get_new_path();
     await req.files.file.mv(newPath);
-    const err = await restore(newPath, (p) =>
-      Plugin.loadAndSaveNewPlugin(p)
-    );
+    const err = await restore(newPath, (p) => Plugin.loadAndSaveNewPlugin(p));
     if (err) req.flash("error", err);
     else req.flash("success", req.__("Successfully restored backup"));
     await getState().refresh_plugins();
@@ -5253,6 +5251,7 @@ declare var console: Console;
 function setTimeout(f:Function, timeout?:number)
 declare const page_load_tag: string
 function emit_to_client(message: object, to_user_ids?: number | number[])
+function emitEvent(eventType: ${Trigger.when_options.map(o=>`"${o}"`).join(" | ")}, channel?: string, payload?: any)
 async function sleep(milliseconds: number)
 function interpolate(s: string,
   row: Row,
@@ -5363,7 +5362,7 @@ async function refreshSystemCache(entities?: "codepages" | "tables" | "views" | 
             }
           });
         };
-        addTsFields(table, "", 2);
+        addTsFields(table, "", req.query.nojoins ? -1 : 2);
         ds.push(`declare const table: Table`);
         ds.push(`declare const row: {
          ${tsFields.join("\n")}
@@ -5631,7 +5630,8 @@ router.post(
       //ignore
     }
     try {
-      res.json({ success: true, code: stripTypes(`async () =>{${code}}`) });
+      res.json({ success: true, code: stripTypes(`async () =>{${code}
+}`) });
     } catch (error) {
       res.json({ success: false, error: error.message });
     }

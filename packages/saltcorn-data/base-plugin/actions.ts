@@ -150,9 +150,10 @@ const run_code = async ({
   try {
     const { stripTypeScriptTypes } = require("module");
     if (stripTypeScriptTypes) stripTypes = stripTypeScriptTypes;
-    code = stripTypes(`async () =>{${configuration.code}}`)
+    code = stripTypes(`async () =>{${configuration.code}
+}`)
       .replace("async () =>{", "")
-      .slice(0, -1);
+      .slice(0, -2);
   } catch (e) {
     //console.error("strip error", e);
     code = configuration.code;
@@ -2343,6 +2344,7 @@ export = {
             table: table?.name || undefined,
             user: has_user,
             workflow: mode === "workflow",
+            nojoins: true,
           },
           class: `validate-statements strip-types ${mode !== "workflow" ? "enlarge-in-card" : ""}`,
           validator(s: any) {
@@ -2357,7 +2359,8 @@ export = {
               let AsyncFunction = Object.getPrototypeOf(
                 async function () {}
               ).constructor;
-              AsyncFunction(stripTypes(`async () =>{${s}}`));
+              AsyncFunction(stripTypes(`async () =>{${s}
+}`));
               return true;
             } catch (e: any) {
               return e.message;
