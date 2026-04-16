@@ -907,7 +907,12 @@ router.get(
   ]),
   error_catcher(async (req, res) => {
     const { type, name } = req.params;
-    const snaps = await Snapshot.entity_history(type, name);
+    const snapOffset = parseInt(req.query.snap_offset) || 0;
+    const { history: snaps, hasMore } = await Snapshot.entity_history(
+      type,
+      name,
+      snapOffset
+    );
     const locale = getState().getConfig("default_locale", "en");
     const auth = checkEditPermission(type + "s", req.user);
     if (!auth) {
@@ -915,6 +920,9 @@ router.get(
       return;
     }
     res.set("Page-Title", `Restore ${text(name)}`);
+    let olderUrl = `/admin/snapshot-restore/${type}/${encodeURIComponent(name)}?snap_offset=${snapOffset + 100}`;
+    if (req.query.on_done_redirect)
+      olderUrl += `&on_done_redirect=${encodeURIComponent(req.query.on_done_redirect)}`;
     res.send(
       mkTable(
         [
@@ -945,7 +953,10 @@ router.get(
           },
         ],
         snaps
-      )
+      ) +
+        (hasMore
+          ? `<div class="mt-2 text-center"><button class="btn btn-secondary btn-sm" onclick="ajax_modal('${olderUrl}')">${req.__("Load older snapshots")}</button></div>`
+          : "")
     );
   })
 );
