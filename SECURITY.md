@@ -1,11 +1,11 @@
 # Security Policy
 
-1. [No warrenty](#no-warrenty)
+1. [No warranty](#no-warranty)
 2. [Risks](#risks)
 3. [Known issues](#known-issues)
 4. [Disclosing new vulnerabilities](#disclosing-new-vulnerabilities)
 
-## No warrenty
+## No warranty
 
 Saltcorn is released under the MIT license, which includes the following clause:
 
@@ -22,7 +22,7 @@ Please read the [license](https://github.com/saltcorn/saltcorn/blob/master/LICEN
 Nothing in this document or in any other document or communication provided by the
 Saltcorn developers should be construed as an implicit warranty or guarantee of
 fitness for any particular purpose. Nor should anything we say be construed as an
-implicit promise, warrenty or guarantee that Saltcorn has been created with an adequate
+implicit promise, warranty or guarantee that Saltcorn has been created with an adequate
 development methodology, or by individuals with suitable professional
 qualifications, for any particular purpose.
 
@@ -51,8 +51,6 @@ Modules are not sandboxed. A module can run any code and cause a full system tak
 The implmentation of ownership formulas in Filter aggregations (which are used to show counts, averages etc) is incomplete. For complex ownership formulas, in particular those that include join fields, aggregations may include rows that the user does not have access to.
 
 In List, Show and Edit views, rows in different tables accessed as join fields and aggregations may not check for ownership.
-
-There are known ways for subdomain tenant admins to execute remote shell code.
 
 ## Disclosing new vulnerabilities
 
