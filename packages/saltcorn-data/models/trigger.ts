@@ -867,6 +867,7 @@ class Trigger implements AbstractTrigger {
     if (workflow) {
       acts.unshift({
         name: "",
+        value: "",
         disabled: true,
         label: "Single action:",
       });

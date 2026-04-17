@@ -280,7 +280,7 @@ function apply_showif() {
       } else {
         e.append(
           $(
-            `<option ${
+            `<option ${o.disabled? "disabled ":""}${
               `${current}` === `${o.value}` ? "selected" : ""
             } value="${o.value}">${o.label}</option>`
           )
