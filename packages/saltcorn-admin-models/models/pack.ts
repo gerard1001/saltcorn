@@ -412,8 +412,7 @@ const event_log_pack = async (eventLog: EventLog): Promise<EventLogPack> => {
     const userId = result.user_id;
     if (result.user_id) delete result.user_id;
     const user = await User.findOne({ id: userId });
-    if (!user) throw new Error(`Unable to find user '${userId}'`);
-    result.user_email = user.email;
+    if (user) result.user_email = user.email;
   }
   return result;
 };
@@ -879,7 +878,7 @@ const install_pack = async (
       if (user) eventLogCfg.user_id = user.id;
       else {
         getState().log(
-          2,
+          3,
           `User '${user_email}' not found for event log ${eventLog.event_type}`
         );
       }
