@@ -10,10 +10,7 @@ export const postShowCalculated = async (context) => {
   const mobileConfig = saltcorn.data.state.getState().mobileConfig;
   const table = saltcorn.data.models.Table.findOne({ name: tableName });
   if (!table) throw new Error(`The table '${tableName}' does not exist.`);
-  if (
-    mobileConfig.isOfflineMode ||
-    mobileConfig.localTableIds.indexOf(table.id) >= 0
-  ) {
+  if (mobileConfig.isOfflineMode) {
     const req = new MobileRequest({
       query: context.query ? parseQuery(context.query) : {},
       body: context.data || {},

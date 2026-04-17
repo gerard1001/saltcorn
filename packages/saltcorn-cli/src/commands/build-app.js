@@ -129,7 +129,6 @@ class BuildAppCommand extends Command {
         cliDir: path.join(__dirname, "../.."),
         useDocker: flags.useDocker,
         platforms: flags.platforms,
-        localUserTables: flags.localUserTables,
         synchedTables: flags.synchedTables,
         includedPlugins: flags.includedPlugins,
         entryPoint: flags.entryPoint,
@@ -229,12 +228,6 @@ BuildAppCommand.flags = {
     char: "t",
     description:
       "Type of the entry point ('view' or 'page'). The default is 'view'.",
-  }),
-  localUserTables: Flags.string({
-    name: "local user tables",
-    char: "l",
-    description: "user defined tables that should be replicated into the app",
-    multiple: true,
   }),
   synchedTables: Flags.string({
     name: "synched tables",

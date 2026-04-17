@@ -14,10 +14,7 @@ export const loadTableRows = async (context) => {
   const mobileConfig = saltcorn.data.state.getState().mobileConfig;
   const table = saltcorn.data.models.Table.findOne({ name: tableName });
   if (!table) throw new Error(`The table '${tableName}' does not exist.`);
-  if (
-    mobileConfig.isOfflineMode ||
-    mobileConfig.localTableIds.indexOf(table.id) >= 0
-  ) {
+  if (mobileConfig.isOfflineMode) {
     const rows = await table.getRows(query, {
       orderBy: table.pk_name,
       forUser: mobileConfig.user,
@@ -38,10 +35,7 @@ export const updateTableRow = async (context) => {
   const mobileConfig = saltcorn.data.state.getState().mobileConfig;
   const table = saltcorn.data.models.Table.findOne({ name: tableName });
   if (!table) throw new Error(`The table '${tableName}' does not exist.`);
-  if (
-    mobileConfig.isOfflineMode ||
-    mobileConfig.localTableIds.indexOf(table.id) >= 0
-  ) {
+  if (mobileConfig.isOfflineMode) {
     const row = {};
     for (const [k, v] of new URLSearchParams(context.query).entries()) {
       row[k] = v;
@@ -73,10 +67,7 @@ export const insertTableRow = async (context) => {
   const table = saltcorn.data.models.Table.findOne({ name: tableName });
   const mobileConfig = saltcorn.data.state.getState().mobileConfig;
   if (!table) throw new Error(`The table '${tableName}' does not exist.`);
-  if (
-    mobileConfig.isOfflineMode ||
-    mobileConfig.localTableIds.indexOf(table.id) >= 0
-  ) {
+  if (mobileConfig.isOfflineMode) {
     const row = {};
     for (const [k, v] of new URLSearchParams(context.query).entries()) {
       row[k] = v;

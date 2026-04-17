@@ -1071,7 +1071,6 @@ export function writeCfgFile({
   entryPoint,
   entryPointType,
   serverPath,
-  localUserTables,
   synchedTables,
   tenantAppName,
   autoPublicLogin,
@@ -1090,7 +1089,6 @@ export function writeCfgFile({
     server_path: !serverPath.endsWith("/")
       ? serverPath
       : serverPath.substring(0, serverPath.length - 1),
-    localUserTables,
     synchedTables,
     autoPublicLogin,
     showContinueAsPublicUser,

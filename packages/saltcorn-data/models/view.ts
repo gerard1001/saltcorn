@@ -776,10 +776,7 @@ class View implements AbstractView {
   ): Promise<any> {
     const { getState } = require("../db/state");
     const state = getState();
-    if (
-      !state.mobileConfig ||
-      state.mobileConfig.localTableIds.indexOf(this.table_id) >= 0
-    ) {
+    if (!state.mobileConfig) {
       remote = false;
     }
     const role = extraArgs.req.user?.role_id || 100;
@@ -1015,8 +1012,7 @@ class View implements AbstractView {
     const { getState } = require("../db/state");
     const mobileConfig = getState().mobileConfig;
     if (mobileConfig?.isOfflineMode) return false;
-    else if (this.viewtemplateObj?.tableless || !this.table_id) return true;
-    else return mobileConfig?.localTableIds.indexOf(this.table_id) < 0;
+    return true;
   }
 
   /**

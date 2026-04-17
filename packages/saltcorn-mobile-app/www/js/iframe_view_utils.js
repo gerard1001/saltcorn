@@ -783,10 +783,7 @@ async function view_post(viewnameOrElem, route, data, onDone, sendState) {
     showLoadSpinner();
     let respData = undefined;
     const query = sendState ? buildQuery() : "";
-    if (
-      mobileConfig.isOfflineMode ||
-      (view?.table_id && mobileConfig.localTableIds.indexOf(view.table_id) >= 0)
-    ) {
+    if (mobileConfig.isOfflineMode) {
       respData = await parent.saltcorn.mobileApp.navigation.router.resolve({
         pathname: `post/view/${viewname}/${route}`,
         data,

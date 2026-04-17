@@ -11,7 +11,6 @@ import {
   createSyncInfoTables,
   dbUpdateNeeded,
   updateDb,
-  getTableIds,
   createJwtTable,
 } from "./helpers/db_schema.js";
 import { publicLogin, checkJWT } from "./helpers/auth.js";
@@ -438,9 +437,6 @@ export async function init(mobileConfig) {
     await state.refresh_triggers();
     await state.refresh_config();
     await state.refresh_codepages();
-    state.mobileConfig.localTableIds = await getTableIds(
-      mobileConfig.localUserTables
-    );
     await state.setConfig("base_url", mobileConfig.server_path);
     await initI18Next();
     state.mobileConfig.encodedSiteLogo = await readSiteLogo();

@@ -102,49 +102,77 @@ export async function updateUserDefinedTables() {
   }
 }
 
-export async function createSyncInfoTables(synchTbls) {
-  const infoTbls = (await saltcorn.data.db.listTables()).filter(({ name }) => {
-    name.endsWith("_sync_info");
-  });
+const createSyncInfoIndexes = async (safeName) => {
+  const tbl = `${safeName}_sync_info`;
+  await saltcorn.data.db.query(
+    `CREATE INDEX IF NOT EXISTS ${tbl}_ref_index ON ${tbl}(ref)`
+  );
+  await saltcorn.data.db.query(
+    `CREATE INDEX IF NOT EXISTS ${tbl}_lm_index ON ${tbl}(last_modified)`
+  );
+  await saltcorn.data.db.query(
+    `CREATE INDEX IF NOT EXISTS ${tbl}_deleted_index ON ${tbl}(deleted)`
+  );
+  await saltcorn.data.db.query(
+    `CREATE INDEX IF NOT EXISTS ${tbl}_ml_index ON ${tbl}(modified_local)`
+  );
+};
+
+// Each entry migrates sync_info tables from version (index) to version (index + 1).
+// To add a migration: append a function and bump SYNC_INFO_SCHEMA_VERSION.
+const SYNC_INFO_SCHEMA_VERSION = 1;
+
+const syncInfoMigrations = [
+  // v0 → v1: ref integer → ref text (UUID primary key support)
+  // SQLite does not support ALTER COLUMN, so we rename → recreate → copy → drop
+  async (safeName) => {
+    const tbl = `${safeName}_sync_info`;
+    const tmp = `${tbl}_migrate_tmp`;
+    await saltcorn.data.db.query(`ALTER TABLE "${tbl}" RENAME TO "${tmp}"`);
+    await saltcorn.data.db.query(`CREATE TABLE "${tbl}" (
+      ref text,
+      last_modified timestamp,
+      deleted integer,
+      modified_local integer
+    )`);
+    await saltcorn.data.db.query(
+      `INSERT INTO "${tbl}" (ref, last_modified, deleted, modified_local)
+       SELECT CAST(ref AS TEXT), last_modified, deleted, modified_local FROM "${tmp}"`
+    );
+    await saltcorn.data.db.query(`DROP TABLE "${tmp}"`);
+    await createSyncInfoIndexes(safeName);
+  },
+];
+
+export async function migrateSyncInfoTables(synchTbls) {
+  const state = saltcorn.data.state.getState();
+  const currentVersion =
+    (await state.getConfig("sync_info_schema_version")) ?? -1;
+  if (currentVersion >= SYNC_INFO_SCHEMA_VERSION) return;
   for (const synchTbl of synchTbls) {
-    if (!infoTbls.find(({ name }) => name.startsWith(synchTbl))) {
-      await saltcorn.data.db
-        .query(`CREATE TABLE IF NOT EXISTS ${saltcorn.data.db.sqlsanitize(
-        synchTbl
-      )}_sync_info (
-          ref integer,
-          last_modified timestamp,
-          deleted integer,
-          modified_local integer
+    const safeName = saltcorn.data.db.sqlsanitize(synchTbl);
+    if (!(await saltcorn.data.db.tableExists(`${safeName}_sync_info`)))
+      continue;
+    for (let v = currentVersion + 1; v <= SYNC_INFO_SCHEMA_VERSION; v++) {
+      await syncInfoMigrations[v - 1]?.(safeName);
+    }
+  }
+  await state.setConfig("sync_info_schema_version", SYNC_INFO_SCHEMA_VERSION);
+}
+
+export async function createSyncInfoTables(synchTbls) {
+  await migrateSyncInfoTables(synchTbls);
+  for (const synchTbl of synchTbls) {
+    const safeName = saltcorn.data.db.sqlsanitize(synchTbl);
+    const tblName = `${safeName}_sync_info`;
+    if (!(await saltcorn.data.db.tableExists(tblName))) {
+      await saltcorn.data.db.query(`CREATE TABLE IF NOT EXISTS ${tblName} (
+        ref text,
+        last_modified timestamp,
+        deleted integer,
+        modified_local integer
       )`);
-      await saltcorn.data.db.query(
-        `CREATE INDEX IF NOT EXISTS ${saltcorn.data.db.sqlsanitize(
-          synchTbl
-        )}_sync_info_ref_index on ${saltcorn.data.db.sqlsanitize(
-          synchTbl
-        )}_sync_info(ref);`
-      );
-      await saltcorn.data.db.query(
-        `CREATE INDEX IF NOT EXISTS ${saltcorn.data.db.sqlsanitize(
-          synchTbl
-        )}_sync_info_lm_index on ${saltcorn.data.db.sqlsanitize(
-          synchTbl
-        )}_sync_info(last_modified);`
-      );
-      await saltcorn.data.db.query(
-        `CREATE INDEX IF NOT EXISTS ${saltcorn.data.db.sqlsanitize(
-          synchTbl
-        )}_sync_info_deleted_index on ${saltcorn.data.db.sqlsanitize(
-          synchTbl
-        )}_sync_info(deleted);`
-      );
-      await saltcorn.data.db.query(
-        `CREATE INDEX IF NOT EXISTS ${saltcorn.data.db.sqlsanitize(
-          synchTbl
-        )}_sync_info_ml_index on ${saltcorn.data.db.sqlsanitize(
-          synchTbl
-        )}_sync_info(modified_local);`
-      );
+      await createSyncInfoIndexes(safeName);
     }
   }
 }
@@ -176,12 +204,6 @@ export async function updateDb(tablesJSON) {
   await writeJSON(historyFile, Directory.Data, {
     updated_at: new Date().valueOf(),
   });
-}
-
-export async function getTableIds(tableNames) {
-  return (await saltcorn.data.models.Table.find())
-    .filter((table) => tableNames.indexOf(table.name) > -1)
-    .map((table) => table.id);
 }
 
 export async function createJwtTable() {

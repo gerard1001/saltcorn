@@ -8,8 +8,8 @@ export const postToggleField = async (context) => {
   const { name, id, field_name } = context.params;
   const table = await saltcorn.data.models.Table.findOne({ name });
   const state = saltcorn.data.state.getState();
-  const { isOfflineMode, localTableIds, user } = state.mobileConfig;
-  if (isOfflineMode || localTableIds.indexOf(table.id) >= 0) {
+  const { isOfflineMode, user } = state.mobileConfig;
+  if (isOfflineMode) {
     if (user.role_id > table.min_role_write)
       throw new saltcorn.data.utils.NotAuthorized(i18next.t("Not authorized"));
     await table.toggleBool(+id, field_name, user);

@@ -7,9 +7,9 @@ import i18next from "i18next";
 export const deleteRows = async (context) => {
   const { tableName, id } = context.params;
   const table = await saltcorn.data.models.Table.findOne({ name: tableName });
-  const { isOfflineMode, localTableIds, user } =
+  const { isOfflineMode, user } =
     saltcorn.data.state.getState().mobileConfig;
-  if (isOfflineMode || localTableIds.indexOf(table.id) >= 0) {
+  if (isOfflineMode) {
     if (user.role_id <= table.min_role_write) {
       await table.deleteRows({ id });
       // TODO 'table.is_owner' check?

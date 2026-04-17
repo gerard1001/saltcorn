@@ -11,6 +11,9 @@ import {
   removeLoadSpinner,
 } from "./common";
 
+// Safely embed a ref value (integer or UUID string) in raw SQL
+const sqlRef = (ref) => `'${String(ref).replace(/'/g, "''")}'`;
+
 const setUploadStarted = async (started, time) => {
   const state = saltcorn.data.state.getState();
   const oldSession = await state.getConfig("last_offline_session");
@@ -35,7 +38,7 @@ const prepare = async () => {
   const { synchedTables } = state.mobileConfig;
   const syncInfos = {};
   for (const tblName of synchedTables) {
-    const syncInfo = { maxLoadedId: 0 };
+    const syncInfo = { lastModifiedAt: 0, lastRef: "" };
     const maxLm = await maxLastModified(tblName);
     if (maxLm) syncInfo.syncFrom = maxLm.valueOf();
     syncInfos[tblName] = syncInfo;
@@ -59,20 +62,20 @@ const insertRemoteData = async (table, rows, syncTimestamp) => {
     const infos = await saltcorn.data.db.select(
       `${saltcorn.data.db.sqlsanitize(tblName)}_sync_info`,
       {
-        ref: rest[pkName],
+        ref: String(rest[pkName]),
       }
     );
     if (infos.length > 0) {
       await saltcorn.data.db.query(
         `update "${saltcorn.data.db.sqlsanitize(tblName)}_sync_info"
                set last_modified=${last_modified}, deleted=false, modified_local = false
-               where ref=${rest[pkName]}`
+               where ref=${sqlRef(rest[pkName])}`
       );
     } else {
       await saltcorn.data.db.insert(
         `${saltcorn.data.db.sqlsanitize(tblName)}_sync_info`,
         {
-          ref,
+          ref: String(ref),
           last_modified: syncTimestamp,
           deleted: false,
           modified_local: false,
@@ -103,14 +106,15 @@ const syncRemoteData = async (syncInfos, syncTimestamp) => {
         loadUntil: syncTimestamp,
       },
     });
-    for (const [tblName, { rows, maxLoadedId }] of Object.entries(
+    for (const [tblName, { rows, maxModifiedAt, maxRef }] of Object.entries(
       loadResp.data
     )) {
       if (rows?.length > 0) {
         const table = getTable(tblName);
         hasMoreData = true;
         await insertRemoteData(table, rows, syncTimestamp);
-        syncInfos[tblName].maxLoadedId = maxLoadedId;
+        syncInfos[tblName].lastModifiedAt = maxModifiedAt ?? 0;
+        syncInfos[tblName].lastRef = maxRef ?? "";
       }
     }
   }
@@ -123,7 +127,7 @@ const prepDeletes = async (table, deletes) => {
   // don't delete if it's local modifed or unsynched
   const tblConflicts = await saltcorn.data.db.query(
     `select ref from "${saltcorn.data.db.sqlsanitize(tblName)}_sync_info"
-       where ref in (${deletes.map(({ ref }) => ref).join(",")}) and 
+       where ref in (${deletes.map(({ ref }) => sqlRef(ref)).join(",")}) and
          (last_modified is null or modified_local = true)`
   );
   if (tblConflicts.rows.length > 0) {
@@ -132,7 +136,7 @@ const prepDeletes = async (table, deletes) => {
     await saltcorn.data.db.query(
       `update "${saltcorn.data.db.sqlsanitize(tblName)}_sync_info"
          set last_modified = null, modified_local = true
-         where ref in (${conflicts.join(",")})`
+         where ref in (${conflicts.map(sqlRef).join(",")})`
     );
     const conflictsSet = new Set(conflicts);
     result = result.filter((del) => !conflictsSet.has(del.ref));
@@ -153,10 +157,12 @@ const prepDeletes = async (table, deletes) => {
         )}" as data_tbl join "${saltcorn.data.db.sqlsanitize(
           srcTbl.name
         )}_sync_info" as info_tbl
-         on data_tbl."${saltcorn.data.db.sqlsanitize(pkName)}" = info_tbl.ref
+         on CAST(info_tbl.ref AS TEXT) = CAST(data_tbl."${saltcorn.data.db.sqlsanitize(
+           pkName
+         )}" AS TEXT)
          where data_tbl."${saltcorn.data.db.sqlsanitize(
            field.name
-         )}" in (${result.map(({ ref }) => ref).join(",")}) 
+         )}" in (${result.map(({ ref }) => sqlRef(ref)).join(",")})
            and (info_tbl.last_modified is null or info_tbl.modified_local = true)`
       );
       if (fkConflicts.rows.length > 0) {
@@ -164,12 +170,12 @@ const prepDeletes = async (table, deletes) => {
         const conflicts = fkConflicts.rows.map(
           (conflict) => conflict[field.name]
         );
-        const conflictsSet = new Set(conflicts);
-        result = result.filter((del) => !conflictsSet.has(del.ref));
+        const conflictsSet = new Set(conflicts.map(String));
+        result = result.filter((del) => !conflictsSet.has(String(del.ref)));
         await saltcorn.data.db.query(
           `update "${saltcorn.data.db.sqlsanitize(tblName)}_sync_info"
            set last_modified = null, modified_local = true
-           where ref in (${conflicts.join(",")})`
+           where ref in (${conflicts.map(sqlRef).join(",")})`
         );
       }
     }
@@ -184,16 +190,16 @@ const applyDeletes = async (allDeletes, syncTimestamp) => {
       const pkName = table.pk_name;
       const safeDeletes = await prepDeletes(table, deletes);
       if (safeDeletes.length > 0) {
-        const delIds = safeDeletes.map(({ ref }) => ref).join(",");
+        const delRefs = safeDeletes.map(({ ref }) => sqlRef(ref)).join(",");
         await saltcorn.data.db.query(
           `delete from "${saltcorn.data.db.sqlsanitize(
             tblName
-          )}" where "${saltcorn.data.db.sqlsanitize(pkName)}" in (${delIds})`
+          )}" where "${saltcorn.data.db.sqlsanitize(pkName)}" in (${delRefs})`
         );
         await saltcorn.data.db.query(
           `update "${saltcorn.data.db.sqlsanitize(tblName)}_sync_info"
              set deleted = true, last_modified = ${syncTimestamp}, modified_local = false
-             where ref in (${delIds}) and deleted = false`
+             where ref in (${delRefs}) and deleted = false`
         );
       }
     }
@@ -226,9 +232,11 @@ const loadOfflineChanges = async (synchedTbls) => {
          from "${saltcorn.data.db.sqlsanitize(
            synchedTbl
          )}_sync_info" as info_tbl left join "${saltcorn.data.db.sqlsanitize(
-           synchedTbl
-         )}" as data_tbl
-         on info_tbl.ref = data_tbl."${saltcorn.data.db.sqlsanitize(pkName)}"
+        synchedTbl
+      )}" as data_tbl
+         on CAST(info_tbl.ref AS TEXT) = CAST(data_tbl."${saltcorn.data.db.sqlsanitize(
+           pkName
+         )}" AS TEXT)
          where info_tbl.modified_local = true`
     );
     const inserts = [];
@@ -280,8 +288,8 @@ const handleTranslatedIds = async (allUniqueConflicts, allTranslations) => {
         await saltcorn.data.db.update(tblName, { [table.pk_name]: to }, from);
         await saltcorn.data.db.query(
           `update "${saltcorn.data.db.sqlsanitize(tblName)}_sync_info"
-            set ref = ${to}
-            where ref = ${from} and deleted = false`
+            set ref = ${sqlRef(to)}
+            where ref = ${sqlRef(from)} and deleted = false`
         );
       }
       for (const fk of fks) {
@@ -311,7 +319,7 @@ const handleUniqueConflicts = async (uniqueConflicts, translatedIds) => {
         if (to === conflict[pkName]) {
           await table.deleteRows({ [pkName]: from });
           await saltcorn.data.db.deleteWhere(`${table.name}_sync_info`, {
-            ref: from,
+            ref: String(from),
           });
         }
       }
@@ -376,11 +384,11 @@ const updateSyncInfos = async (
       )
     );
     const values = refIds.map(
-      (ref) => `(${ref}, ${syncTimestamp}, ${deleted}, false)`
+      (ref) => `(${sqlRef(ref)}, ${syncTimestamp}, ${deleted}, false)`
     );
     await saltcorn.data.db.query(
       `delete from "${saltcorn.data.db.sqlsanitize(tblName)}_sync_info"
-         where ref in (${refIds.join(",")})`
+         where ref in (${refIds.map(sqlRef).join(",")})`
     );
     await saltcorn.data.db.query(
       `insert into "${saltcorn.data.db.sqlsanitize(tblName)}_sync_info"
@@ -714,7 +722,9 @@ export async function hasOfflineRows() {
              tblName
            )}_sync_info" as info_tbl 
            join "${saltcorn.data.db.sqlsanitize(tblName)}" as data_tbl
-           on info_tbl.ref = data_tbl."${saltcorn.data.db.sqlsanitize(pkName)}"
+           on CAST(info_tbl.ref AS TEXT) = CAST(data_tbl."${saltcorn.data.db.sqlsanitize(
+             pkName
+           )}" AS TEXT)
            where info_tbl.modified_local = true`
     );
     if (rows?.length > 0 && parseInt(rows[0].total) > 0) return true;

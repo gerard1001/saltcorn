@@ -91,6 +91,13 @@ const configTypes: ConfigTypes = {
     blurb:
       "This is an object to remember the settings of the mobile builder menu.",
   },
+  sync_info_schema_version: {
+    type: "Integer",
+    label: "Sync info schema version",
+    default: -1,
+    blurb:
+      "Tracks the schema version of the mobile sync_info tables. Used by the mobile app to run incremental migrations.",
+  },
   menu_items: { type: "hidden", label: "Menu items" },
   unrolled_menu_items: { type: "hidden", label: "Menu items" },
 

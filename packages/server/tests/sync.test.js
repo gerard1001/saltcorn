@@ -101,7 +101,7 @@ describe("load remote insert/updates", () => {
           loadUntil: loadUntil.valueOf(),
           syncInfos: {
             books: {
-              maxLoadedId: 0,
+              lastModifiedAt: 0,
             },
           },
         });
@@ -111,15 +111,16 @@ describe("load remote insert/updates", () => {
       for (const row of data.books.rows) {
         const fromDb = await books.getRows({ id: row._sync_info_tbl_ref_ });
         expect(fromDb.length).toBe(1);
-        expect(row._sync_info_tbl_last_modified_).toBe(loadUntil.valueOf());
-        expect(row._sync_info_tbl_deleted_).toBe(null);
+        expect(typeof row._sync_info_tbl_last_modified_).toBe("number");
+        expect(row._sync_info_tbl_deleted_).toBe(false);
       }
     });
 
-    it("with syncFrom, without sync_infos", async () => {
+    it("with syncFrom, no changes in window", async () => {
       const app = await getApp({ disableCsrf: true });
       const loginCookie = await getAdminLoginCookie();
       const loadUntil = new Date();
+      // syncFrom == loadUntil → empty time window → no rows
       const resp = await request(app)
         .post("/sync/load_changes")
         .set("Cookie", loginCookie)
@@ -127,8 +128,8 @@ describe("load remote insert/updates", () => {
           loadUntil: loadUntil.valueOf(),
           syncInfos: {
             books: {
-              maxLoadedId: 0,
-              syncFrom: 1000,
+              lastModifiedAt: 0,
+              syncFrom: loadUntil.valueOf(),
             },
           },
         });
@@ -154,7 +155,7 @@ describe("load remote insert/updates", () => {
             loadUntil: (await db.time()).valueOf(),
             syncInfos: {
               books: {
-                maxLoadedId: 0,
+                lastModifiedAt: 0,
                 syncFrom: dbTime.valueOf(),
               },
             },
@@ -169,7 +170,7 @@ describe("load remote insert/updates", () => {
           _sync_info_tbl_deleted_,
           ...rest
         } = data.books.rows[0];
-        expect(_sync_info_tbl_ref_).toBe(2);
+        expect(Number(_sync_info_tbl_ref_)).toBe(2);
         expect(_sync_info_tbl_last_modified_).toBe(last_modified.valueOf());
         expect(_sync_info_tbl_deleted_).toBe(false);
         expect(rest.author).toBe("Leo Tolstoy");
@@ -183,7 +184,7 @@ describe("load remote insert/updates", () => {
             loadUntil: (await db.time()).valueOf(),
             syncInfos: {
               books: {
-                maxLoadedId: 0,
+                lastModifiedAt: 0,
                 syncFrom: dbTime.valueOf(),
               },
             },
@@ -198,13 +199,13 @@ describe("load remote insert/updates", () => {
             _sync_info_tbl_deleted_,
             ...rest
           } = row;
-          expect(_sync_info_tbl_ref_).toBe(rest.id);
+          expect(Number(_sync_info_tbl_ref_)).toBe(rest.id);
           const { last_modified } = await books.latestSyncInfo(rest.id);
           expect(_sync_info_tbl_last_modified_).toBe(last_modified.valueOf());
           expect(_sync_info_tbl_deleted_).toBe(false);
         }
-        expect(data.books.rows[0].author).toBe("Herman Melville");
-        expect(data.books.rows[1].author).toBe("Leo Tolstoy");
+        expect(data.books.rows[0].author).toBe("Leo Tolstoy");
+        expect(data.books.rows[1].author).toBe("Herman Melville");
       }
     });
 
@@ -246,7 +247,7 @@ describe("load remote insert/updates", () => {
           loadUntil: (await db.time()).valueOf(),
           syncInfos: {
             "Table with capitals": {
-              maxLoadedId: 0,
+              lastModifiedAt: 0,
               syncFrom: dbTime.valueOf(),
             },
           },
@@ -265,7 +266,7 @@ describe("load remote insert/updates", () => {
           loadUntil: loadUntil.valueOf(),
           syncInfos: {
             patients: {
-              maxLoadedId: 0,
+              lastModifiedAt: 0,
               syncFrom: 1000,
             },
           },
@@ -304,7 +305,7 @@ describe("load remote insert/updates", () => {
           loadUntil: loadUntil.valueOf(),
           syncInfos: {
             patients: {
-              maxLoadedId: 0,
+              lastModifiedAt: 0,
             },
           },
         });
@@ -334,7 +335,7 @@ describe("load remote insert/updates", () => {
           loadUntil: loadUntil.valueOf(),
           syncInfos: {
             patients: {
-              maxLoadedId: 0,
+              lastModifiedAt: 0,
               syncFrom: 1000,
             },
           },
@@ -913,9 +914,9 @@ describe("SQL injection protection", () => {
       await initSyncInfo(["books"]);
     });
 
-    // --- /sync/load_changes : maxLoadedId ---
+    // --- /sync/load_changes : lastModifiedAt ---
 
-    it("rejects SQL injection in maxLoadedId (OR 1=1)", async () => {
+    it("rejects SQL injection in lastModifiedAt (OR 1=1)", async () => {
       const app = await getApp({ disableCsrf: true });
       const loginCookie = await getAdminLoginCookie();
       await request(app)
@@ -923,14 +924,17 @@ describe("SQL injection protection", () => {
         .set("Cookie", loginCookie)
         .send({
           loadUntil: new Date().valueOf(),
-          syncInfos: { books: { maxLoadedId: "0 OR 1=1--" } },
+          syncInfos: { books: { lastModifiedAt: "0 OR 1=1--" } },
         })
         .expect(
-          respondJsonWith(400, (resp) => resp.error === "Invalid maxLoadedId")
+          respondJsonWith(
+            400,
+            (resp) => resp.error === "Invalid lastModifiedAt"
+          )
         );
     });
 
-    it("rejects SQL injection in maxLoadedId (UNION SELECT)", async () => {
+    it("rejects SQL injection in lastModifiedAt (UNION SELECT)", async () => {
       const app = await getApp({ disableCsrf: true });
       const loginCookie = await getAdminLoginCookie();
       await request(app)
@@ -939,15 +943,18 @@ describe("SQL injection protection", () => {
         .send({
           loadUntil: new Date().valueOf(),
           syncInfos: {
-            books: { maxLoadedId: "0 UNION SELECT * FROM users--" },
+            books: { lastModifiedAt: "0 UNION SELECT * FROM users--" },
           },
         })
         .expect(
-          respondJsonWith(400, (resp) => resp.error === "Invalid maxLoadedId")
+          respondJsonWith(
+            400,
+            (resp) => resp.error === "Invalid lastModifiedAt"
+          )
         );
     });
 
-    it("rejects SQL injection in maxLoadedId (stacked query)", async () => {
+    it("rejects SQL injection in lastModifiedAt (stacked query)", async () => {
       const app = await getApp({ disableCsrf: true });
       const loginCookie = await getAdminLoginCookie();
       await request(app)
@@ -956,15 +963,18 @@ describe("SQL injection protection", () => {
         .send({
           loadUntil: new Date().valueOf(),
           syncInfos: {
-            books: { maxLoadedId: "0; DROP TABLE books; --" },
+            books: { lastModifiedAt: "0; DROP TABLE books; --" },
           },
         })
         .expect(
-          respondJsonWith(400, (resp) => resp.error === "Invalid maxLoadedId")
+          respondJsonWith(
+            400,
+            (resp) => resp.error === "Invalid lastModifiedAt"
+          )
         );
     });
 
-    it("rejects non-numeric string for maxLoadedId", async () => {
+    it("rejects non-numeric string for lastModifiedAt", async () => {
       const app = await getApp({ disableCsrf: true });
       const loginCookie = await getAdminLoginCookie();
       await request(app)
@@ -972,14 +982,17 @@ describe("SQL injection protection", () => {
         .set("Cookie", loginCookie)
         .send({
           loadUntil: new Date().valueOf(),
-          syncInfos: { books: { maxLoadedId: "abc" } },
+          syncInfos: { books: { lastModifiedAt: "abc" } },
         })
         .expect(
-          respondJsonWith(400, (resp) => resp.error === "Invalid maxLoadedId")
+          respondJsonWith(
+            400,
+            (resp) => resp.error === "Invalid lastModifiedAt"
+          )
         );
     });
 
-    it("rejects float maxLoadedId", async () => {
+    it("rejects float lastModifiedAt", async () => {
       const app = await getApp({ disableCsrf: true });
       const loginCookie = await getAdminLoginCookie();
       await request(app)
@@ -987,10 +1000,13 @@ describe("SQL injection protection", () => {
         .set("Cookie", loginCookie)
         .send({
           loadUntil: new Date().valueOf(),
-          syncInfos: { books: { maxLoadedId: 1.5 } },
+          syncInfos: { books: { lastModifiedAt: 1.5 } },
         })
         .expect(
-          respondJsonWith(400, (resp) => resp.error === "Invalid maxLoadedId")
+          respondJsonWith(
+            400,
+            (resp) => resp.error === "Invalid lastModifiedAt"
+          )
         );
     });
 
@@ -1004,7 +1020,7 @@ describe("SQL injection protection", () => {
         .set("Cookie", loginCookie)
         .send({
           loadUntil: new Date().valueOf(),
-          syncInfos: { books: { maxLoadedId: 0, syncFrom: "not-a-date" } },
+          syncInfos: { books: { lastModifiedAt: 0, syncFrom: "not-a-date" } },
         })
         .expect(
           respondJsonWith(400, (resp) => resp.error === "Invalid syncFrom")
@@ -1020,7 +1036,7 @@ describe("SQL injection protection", () => {
         .send({
           loadUntil: new Date().valueOf(),
           syncInfos: {
-            books: { maxLoadedId: 0, syncFrom: "0); SELECT pg_sleep(5)--" },
+            books: { lastModifiedAt: 0, syncFrom: "0); SELECT pg_sleep(5)--" },
           },
         })
         .expect(
@@ -1038,7 +1054,7 @@ describe("SQL injection protection", () => {
         .set("Cookie", loginCookie)
         .send({
           loadUntil: "not-a-date",
-          syncInfos: { books: { maxLoadedId: 0 } },
+          syncInfos: { books: { lastModifiedAt: 0 } },
         })
         .expect(
           respondJsonWith(400, (resp) => resp.error === "Invalid syncUntil")
@@ -1113,7 +1129,7 @@ describe("SQL injection protection", () => {
 
     // --- regression: valid requests still succeed ---
 
-    it("valid maxLoadedId integer still works", async () => {
+    it("valid lastModifiedAt value still works", async () => {
       const app = await getApp({ disableCsrf: true });
       const loginCookie = await getAdminLoginCookie();
       const resp = await request(app)
@@ -1121,7 +1137,7 @@ describe("SQL injection protection", () => {
         .set("Cookie", loginCookie)
         .send({
           loadUntil: new Date().valueOf(),
-          syncInfos: { books: { maxLoadedId: 0 } },
+          syncInfos: { books: { lastModifiedAt: 0 } },
         });
       expect(resp.status).toBe(200);
       expect(resp._body.books).toBeDefined();
@@ -1135,7 +1151,7 @@ describe("SQL injection protection", () => {
         .set("Cookie", loginCookie)
         .send({
           loadUntil: new Date().valueOf(),
-          syncInfos: { books: { maxLoadedId: 0, syncFrom: 1000 } },
+          syncInfos: { books: { lastModifiedAt: 0, syncFrom: 1000 } },
         });
       expect(resp.status).toBe(200);
     });
@@ -1322,7 +1338,7 @@ describe("deletes authorization with ownership_formula", () => {
       expect(resp.status).toBe(200);
       const deletes = resp._body.deletes?.sync_owned || [];
       expect(deletes.length).toBe(1);
-      expect(deletes[0].ref).toBe(itemId);
+      expect(Number(deletes[0].ref)).toBe(itemId);
     });
 
     it("direct formula: non-owner does not see deleted rows", async () => {
@@ -1373,7 +1389,7 @@ describe("deletes authorization with ownership_formula", () => {
       expect(resp.status).toBe(200);
       const deletes = resp._body.deletes?.sync_child || [];
       expect(deletes.length).toBe(1);
-      expect(deletes[0].ref).toBe(childId);
+      expect(Number(deletes[0].ref)).toBe(childId);
     });
 
     it("join formula: non-owner does not see deleted child rows", async () => {
@@ -1613,7 +1629,7 @@ describe("load_changes authorization with ownership_formula", () => {
         .send({
           loadUntil: loadUntil.valueOf(),
           syncInfos: {
-            lc_owned: { maxLoadedId: 0 },
+            lc_owned: { lastModifiedAt: 0 },
           },
         });
       expect(resp.status).toBe(200);
@@ -1635,7 +1651,7 @@ describe("load_changes authorization with ownership_formula", () => {
         .send({
           loadUntil: loadUntil.valueOf(),
           syncInfos: {
-            lc_owned: { maxLoadedId: 0 },
+            lc_owned: { lastModifiedAt: 0 },
           },
         });
       expect(resp.status).toBe(200);
@@ -1661,7 +1677,7 @@ describe("load_changes authorization with ownership_formula", () => {
         .send({
           loadUntil: loadUntil.valueOf(),
           syncInfos: {
-            lc_child: { maxLoadedId: 0 },
+            lc_child: { lastModifiedAt: 0 },
           },
         });
       expect(resp.status).toBe(200);
@@ -1687,7 +1703,7 @@ describe("load_changes authorization with ownership_formula", () => {
         .send({
           loadUntil: loadUntil.valueOf(),
           syncInfos: {
-            lc_child: { maxLoadedId: 0 },
+            lc_child: { lastModifiedAt: 0 },
           },
         });
       expect(resp.status).toBe(200);
@@ -1712,7 +1728,7 @@ describe("load_changes authorization with ownership_formula", () => {
         .send({
           loadUntil: loadUntil.valueOf(),
           syncInfos: {
-            lc_owned: { maxLoadedId: 0, syncFrom: syncFrom.valueOf() },
+            lc_owned: { lastModifiedAt: 0, syncFrom: syncFrom.valueOf() },
           },
         });
       expect(resp.status).toBe(200);
@@ -1737,7 +1753,7 @@ describe("load_changes authorization with ownership_formula", () => {
         .send({
           loadUntil: loadUntil.valueOf(),
           syncInfos: {
-            lc_owned: { maxLoadedId: 0, syncFrom: syncFrom.valueOf() },
+            lc_owned: { lastModifiedAt: 0, syncFrom: syncFrom.valueOf() },
           },
         });
       expect(resp.status).toBe(200);

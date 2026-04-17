@@ -70,7 +70,6 @@ type MobileBuilderConfig = {
   cliDir: string;
   useDocker?: boolean;
   platforms: string[];
-  localUserTables?: string[];
   synchedTables?: string[];
   includedPlugins?: string[];
   entryPoint: string;
@@ -111,7 +110,6 @@ export class MobileBuilder {
   cliDir: string;
   useDocker?: boolean;
   platforms: string[];
-  localUserTables: string[];
   synchedTables: string[];
   includedPlugins: string[];
   entryPoint: string;
@@ -164,7 +162,6 @@ export class MobileBuilder {
     this.cliDir = cfg.cliDir;
     this.useDocker = cfg.useDocker;
     this.platforms = cfg.platforms;
-    this.localUserTables = cfg.localUserTables ? cfg.localUserTables : [];
     this.synchedTables = cfg.synchedTables ? cfg.synchedTables : [];
     this.includedPlugins = cfg.includedPlugins ? cfg.includedPlugins : [];
     this.entryPoint = cfg.entryPoint;
@@ -267,7 +264,6 @@ export class MobileBuilder {
         entryPoint: this.entryPoint,
         entryPointType: this.entryPointType,
         serverPath: this.serverURL ? this.serverURL : "http://10.0.2.2:3000", // host localhost of the android emulator
-        localUserTables: this.localUserTables,
         synchedTables: this.synchedTables,
         tenantAppName: this.tenantAppName,
         autoPublicLogin: this.autoPublicLogin,

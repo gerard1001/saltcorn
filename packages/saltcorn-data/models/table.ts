@@ -1016,11 +1016,11 @@ class Table implements AbstractTable {
           const schema = db.getTenantSchemaPrefix();
           const pkName = this.pk_name || "id";
           if (isNode()) {
-            const pkVals = ids.map((row) => row[pkName]);
+            const pkVals = ids.map((row) => String(row[pkName]));
             await db.query(
               `delete from ${schema}"${db.sqlsanitize(
                 this.name
-              )}_sync_info" where ref = ANY($1)`,
+              )}_sync_info" where ref = ANY($1::text[])`,
               [pkVals]
             );
             const tsParam = timestamp.valueOf() / 1000.0;
@@ -1042,7 +1042,7 @@ class Table implements AbstractTable {
               insertParams.push(ownerFieldsVal);
               return `($${
                 insertParams.length - 2
-              }, date_trunc('milliseconds', to_timestamp($1)), true, $${
+              }::text, date_trunc('milliseconds', to_timestamp($1)), true, $${
                 insertParams.length - 1
               }, $${insertParams.length})`;
             });
@@ -1054,7 +1054,7 @@ class Table implements AbstractTable {
               insertParams
             );
           } else {
-            const pkVals = ids.map((row) => row[pkName]);
+            const pkVals = ids.map((row) => String(row[pkName]));
             const placeholders = pkVals
               .map((_: any, i: number) => `$${i + 1}`)
               .join(",");
@@ -1991,7 +1991,8 @@ class Table implements AbstractTable {
   SELECT MAX(last_modified) "last_modified", ref
   FROM ${schema}"${db.sqlsanitize(this.name)}_sync_info"
   GROUP BY ref HAVING ref = ($1)`;
-        const result = await db.query(sql, db.isSQLite ? ids : [ids]);
+        const strIds = ids.map((id) => String(id));
+        const result = await db.query(sql, db.isSQLite ? strIds : [strIds]);
         return result.rows;
       },
       (e: Error) => {
@@ -2028,7 +2029,7 @@ class Table implements AbstractTable {
               this.name
             )}_sync_info" (ref, last_modified, updated_fields)
             values(
-              $1,
+              $1::text,
               date_trunc('milliseconds', to_timestamp($2)),
               $3::jsonb
             )`,
@@ -2038,7 +2039,7 @@ class Table implements AbstractTable {
           await db.query(
             `insert into "${db.sqlsanitize(this.name)}_sync_info"
          (ref, modified_local, deleted)
-         values($1, true, false)`,
+         values(CAST($1 AS TEXT), true, false)`,
             [id]
           );
         }
@@ -2074,13 +2075,13 @@ class Table implements AbstractTable {
             fieldTimestamps[k] = timestamp;
           }
           await db.query(
-            `update ${schema}"${db.sqlsanitize(this.name)}_sync_info" 
-            set 
+            `update ${schema}"${db.sqlsanitize(this.name)}_sync_info"
+            set
               last_modified=date_trunc('milliseconds', to_timestamp($1)),
               updated_fields =
                 coalesce(updated_fields, '{}'::jsonb) || $4::jsonb
-            where 
-              ref=$2 and last_modified = to_timestamp($3)`,
+            where
+              ref=$2::text and last_modified = to_timestamp($3)`,
             [
               timestamp.valueOf() / 1000.0,
               id,
@@ -2093,7 +2094,7 @@ class Table implements AbstractTable {
             `update "${db.sqlsanitize(
               this.name
             )}_sync_info" set modified_local = true
-         where ref = $1 and last_modified = $2`,
+         where ref = CAST($1 AS TEXT) and last_modified = $2`,
             [id, oldLastModified ? oldLastModified.valueOf() : null]
           );
         }
@@ -2369,6 +2370,16 @@ class Table implements AbstractTable {
     if ("set_fields" in valResCollector)
       Object.assign(v_in, valResCollector.set_fields);
 
+    // On mobile (SQLite), PKs with a client-side default (e.g. UUID via the
+    // uuid-type plugin's default_js) must be generated before the insert.
+    if (!isNode() && v_in[pk_name] == null) {
+      const pkField = fields?.find((f) => f.primary_key && !f.is_fkey);
+      const defaultJs = (pkField?.type as any)?.primaryKey?.default_js;
+      if (typeof defaultJs === "function") {
+        v_in[pk_name] = defaultJs();
+      }
+    }
+
     if (
       Object.keys(joinFields).length > 0 ||
       fields.some((f) => f.expression === "__aggregation")
@@ -2379,6 +2390,8 @@ class Table implements AbstractTable {
       );
       this.prepare_row_for_writing(v_in);
       id = await db.insert(this.name, v_in, { pk_name, ...sqliteJsonCols });
+      // db.insert returns SQLite rowid, not the PK for non-integer PK types
+      if (!isNode() && v_in[pk_name] != null) id = v_in[pk_name];
       let existing = await this.getJoinedRows({
         where: { [pk_name]: id },
         joinFields,
@@ -2416,6 +2429,8 @@ class Table implements AbstractTable {
         pk_name,
         ...sqliteJsonCols,
       });
+      // db.insert returns SQLite rowid, not the PK for non-integer PK types
+      if (!isNode() && v[pk_name] != null) id = v[pk_name];
     }
     if (
       use_user &&
@@ -2462,14 +2477,14 @@ class Table implements AbstractTable {
               1000.0;
             await db.query(
               `insert into ${schemaPrefix}"${db.sqlsanitize(this.name)}_sync_info"
-              (ref, last_modified) values($1, date_trunc('milliseconds', to_timestamp($2)))`,
+              (ref, last_modified) values($1::text, date_trunc('milliseconds', to_timestamp($2)))`,
               [id, tsParam]
             );
           } else {
             await db.query(
               `insert into "${db.sqlsanitize(this.name)}_sync_info"
            (last_modified, ref, modified_local, deleted)
-           values(NULL, $1, true, false)`,
+           values(NULL, CAST($1 AS TEXT), true, false)`,
               [id]
             );
           }
@@ -2886,7 +2901,7 @@ class Table implements AbstractTable {
         }
         await db.query(
           `create table ${schemaPrefix}"${sqlsanitize(this.name)}_sync_info" (
-            ref integer,
+            ref text not null,
             last_modified timestamp,
             deleted boolean default false,
             updated_fields jsonb,

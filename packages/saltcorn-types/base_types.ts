@@ -696,7 +696,7 @@ export type MobileConfig = {
   entry_point: string;
   entryPointType: "view" | "page" | "byrole";
   // server_path <=> base_url
-  localTableIds: number[];
+
   synchedTables: string[];
   autoPublicLogin: boolean;
   showContinueAsPublicUser?: boolean;

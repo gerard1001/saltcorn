@@ -82,8 +82,12 @@ const getSyncRows = async (syncInfo, table, syncUntil, user) => {
     ownerFieldName = ownerField.name;
   }
 
-  const maxLoadedId = Number(syncInfo.maxLoadedId);
-  if (!Number.isInteger(maxLoadedId)) throw new Error("Invalid maxLoadedId");
+  // Time-based composite cursor: (lastModifiedAt ms, lastRef string).
+  // Works for both integer and UUID primary keys.
+  const lastModifiedAt = Number(syncInfo.lastModifiedAt ?? 0);
+  if (!Number.isInteger(lastModifiedAt) || lastModifiedAt < 0)
+    throw new Error("Invalid lastModifiedAt");
+  const lastRef = String(syncInfo.lastRef ?? "");
 
   const syncUntilMs = new Date(syncUntil).valueOf();
   if (!Number.isFinite(syncUntilMs)) throw new Error("Invalid syncUntil");
@@ -94,28 +98,31 @@ const getSyncRows = async (syncInfo, table, syncUntil, user) => {
 
   const schema = db.getTenantSchemaPrefix();
   if (!syncInfo.syncFrom) {
-    const params = [maxLoadedId];
+    // First sync: all non-deleted rows after the cursor, ordered by
+    // (last_modified, ref) so pagination is stable across PK types.
+    const params = [lastModifiedAt / 1000.0, lastRef];
     const ownerClause = ownerFieldName
-      ? `and data_tbl."${db.sqlsanitize(ownerFieldName)}" = $2`
+      ? `and data_tbl."${db.sqlsanitize(ownerFieldName)}" = $3`
       : "";
     if (ownerFieldName) params.push(userId);
     const { rows } = await db.query(
       `select
-         info_tbl.ref "_sync_info_tbl_ref_",
+         COALESCE(info_tbl.ref, data_tbl."${db.sqlsanitize(pkName)}"::text) "_sync_info_tbl_ref_",
          info_tbl.last_modified "_sync_info_tbl_last_modified_",
-         info_tbl.deleted "_sync_info_tbl_deleted_",
+         COALESCE(info_tbl.deleted, false) "_sync_info_tbl_deleted_",
          data_tbl.*
-       from ${schema}"${db.sqlsanitize(
-        tblName
-      )}_sync_info" "info_tbl" right join "${db.sqlsanitize(
-        tblName
-      )}" "data_tbl"
-      on info_tbl.ref = data_tbl."${db.sqlsanitize(
-        pkName
-      )}" and info_tbl.deleted = false
-      where data_tbl."${db.sqlsanitize(pkName)}" > $1
-      ${ownerClause}
-      order by data_tbl."${db.sqlsanitize(pkName)}"`,
+       from ${schema}"${db.sqlsanitize(tblName)}_sync_info" "info_tbl"
+       right join "${db.sqlsanitize(tblName)}" "data_tbl"
+         on info_tbl.ref = data_tbl."${db.sqlsanitize(pkName)}"::text
+         and info_tbl.deleted = false
+       where (
+           COALESCE(info_tbl.last_modified, to_timestamp(0)),
+           COALESCE(info_tbl.ref, data_tbl."${db.sqlsanitize(pkName)}"::text)
+         ) > (to_timestamp($1), $2)
+       ${ownerClause}
+       order by
+         COALESCE(info_tbl.last_modified, to_timestamp(0)),
+         COALESCE(info_tbl.ref, data_tbl."${db.sqlsanitize(pkName)}"::text)`,
       params
     );
     for (const row of rows) {
@@ -132,9 +139,16 @@ const getSyncRows = async (syncInfo, table, syncUntil, user) => {
     const syncFromMs = new Date(syncInfo.syncFrom).valueOf();
     if (!Number.isFinite(syncFromMs)) throw new Error("Invalid syncFrom");
 
-    const params = [syncFromMs / 1000.0, syncUntilMs / 1000.0, maxLoadedId];
+    // Incremental sync: rows changed in the time window, paged by
+    // (last_modified, ref) within the window.
+    const params = [
+      syncFromMs / 1000.0,
+      syncUntilMs / 1000.0,
+      lastModifiedAt / 1000.0,
+      lastRef,
+    ];
     const ownerClause = ownerFieldName
-      ? `and data_tbl."${db.sqlsanitize(ownerFieldName)}" = $4`
+      ? `and data_tbl."${db.sqlsanitize(ownerFieldName)}" = $5`
       : "";
     if (ownerFieldName) params.push(userId);
     const { rows } = await db.query(
@@ -143,18 +157,15 @@ const getSyncRows = async (syncInfo, table, syncUntil, user) => {
          info_tbl.last_modified "_sync_info_tbl_last_modified_",
          info_tbl.deleted "_sync_info_tbl_deleted_",
          data_tbl.*
-       from ${schema}"${db.sqlsanitize(
-        tblName
-      )}_sync_info" "info_tbl" join ${schema}"${db.sqlsanitize(
-        tblName
-      )}" "data_tbl"
-      on info_tbl.ref = data_tbl."${db.sqlsanitize(pkName)}"
-      where date_trunc('milliseconds', info_tbl.last_modified) > to_timestamp($1)
-      and date_trunc('milliseconds', info_tbl.last_modified) < to_timestamp($2)
-      and info_tbl.deleted = false
-      and info_tbl.ref > $3
-      ${ownerClause}
-      order by info_tbl.ref`,
+       from ${schema}"${db.sqlsanitize(tblName)}_sync_info" "info_tbl"
+       join ${schema}"${db.sqlsanitize(tblName)}" "data_tbl"
+         on info_tbl.ref = data_tbl."${db.sqlsanitize(pkName)}"::text
+       where date_trunc('milliseconds', info_tbl.last_modified) > to_timestamp($1)
+         and date_trunc('milliseconds', info_tbl.last_modified) < to_timestamp($2)
+         and info_tbl.deleted = false
+         and (info_tbl.last_modified, info_tbl.ref) > (to_timestamp($3), $4)
+       ${ownerClause}
+       order by info_tbl.last_modified, info_tbl.ref`,
       params
     );
     for (const row of rows) {
@@ -215,9 +226,11 @@ router.post(
             rows.splice(rowLimit);
           }
           rowLimit -= rows.length;
+          const lastRow = rows.length > 0 ? rows[rows.length - 1] : null;
           result[tblName] = {
             rows,
-            maxLoadedId: rows.length > 0 ? rows[rows.length - 1][pkName] : 0,
+            maxModifiedAt: lastRow ? lastRow._sync_info_tbl_last_modified_ : 0,
+            maxRef: lastRow ? String(lastRow._sync_info_tbl_ref_ ?? "") : "",
           };
         }
         return result;
