@@ -1136,6 +1136,26 @@ function build_mobile_app(button) {
     (option) => option.value
   );
 
+  ajax_post("/admin/build-mobile-app/validate-synced-tables", {
+    data: { synchedTables: params.synchedTables },
+    success: (data) => {
+      if (
+        data.warnings &&
+        data.warnings.length > 0 &&
+        !confirm(
+          "Warning: some tables referenced by synced tables are not synced:\n\n" +
+            data.warnings.join("\n") +
+            "\n\nDo you really want to continue?"
+        )
+      ) {
+        return;
+      }
+      _do_build_mobile_app(button, params);
+    },
+  });
+}
+
+function _do_build_mobile_app(button, params) {
   if (
     params.useDocker &&
     !window.capacitorBuilderAvailable &&

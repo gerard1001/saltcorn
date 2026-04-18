@@ -4558,6 +4558,54 @@ router.post(
 );
 
 /**
+ * Validate synced tables: check that all tables reachable via FK from the
+ * selected synced tables are also included in the synced set.
+ */
+router.post(
+  "/build-mobile-app/validate-synced-tables",
+  isAdmin,
+  error_catcher(async (req, res) => {
+    const { synchedTables } = req.body || {};
+    if (!Array.isArray(synchedTables) || synchedTables.length === 0) {
+      return res.json({ warnings: [] });
+    }
+
+    const syncedSet = new Set(synchedTables);
+    const visited = new Set();
+    const queue = [...synchedTables];
+    const missing = new Set();
+
+    while (queue.length > 0) {
+      const tblName = queue.shift();
+      if (visited.has(tblName)) continue;
+      visited.add(tblName);
+
+      const table = Table.findOne({ name: tblName });
+      if (!table) continue;
+
+      for (const field of table.getFields()) {
+        if (field.reftable_name && !field.calculated) {
+          const refName = field.reftable_name;
+          if (refName === "users") continue;
+          if (!syncedSet.has(refName)) {
+            missing.add(refName);
+          }
+          if (!visited.has(refName)) {
+            queue.push(refName);
+          }
+        }
+      }
+    }
+
+    const warnings = [...missing].map(
+      (tblName) =>
+        `Table "${tblName}" is referenced by a synced table but is not itself synced.`
+    );
+    res.json({ warnings });
+  })
+);
+
+/**
  * Do Build Mobile App
  */
 router.post(
