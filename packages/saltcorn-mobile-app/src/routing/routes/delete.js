@@ -7,19 +7,29 @@ import i18next from "i18next";
 export const deleteRows = async (context) => {
   const { tableName, id } = context.params;
   const table = await saltcorn.data.models.Table.findOne({ name: tableName });
-  const { isOfflineMode, user } =
-    saltcorn.data.state.getState().mobileConfig;
+  const { isOfflineMode, user } = saltcorn.data.state.getState().mobileConfig;
   if (isOfflineMode) {
-    if (user.role_id <= table.min_role_write) {
-      await table.deleteRows({ id });
-      // TODO 'table.is_owner' check?
-    } else
+    const role = user?.role_id || 100;
+    const where = { [table.pk_name]: id };
+    if (role <= table.min_role_write) {
+      await table.deleteRows(where, user);
+    } else if ((table.ownership_field_id || table.ownership_formula) && user) {
+      const row = await table.getJoinedRow({
+        where,
+        forUser: user,
+        forPublic: !user,
+      });
+      if (row && table.is_owner(user, row)) {
+        await table.deleteRows(where, user);
+      } else {
+        throw new saltcorn.data.utils.NotAuthorized(
+          i18next.t("Not authorized")
+        );
+      }
+    } else {
       throw new saltcorn.data.utils.NotAuthorized(i18next.t("Not authorized"));
-    if (isOfflineMode && (await hasOfflineRows()))
-      await setHasOfflineData(true);
-    // if (isOfflineMode && !(await offlineHelper.hasOfflineRows())) {
-    //   await offlineHelper.setOfflineSession(null);
-    // }
+    }
+    if (await hasOfflineRows()) await setHasOfflineData(true);
   } else {
     await apiCall({ method: "POST", path: `/delete/${tableName}/${id}` });
   }

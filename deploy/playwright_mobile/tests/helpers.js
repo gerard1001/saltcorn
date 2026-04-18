@@ -1,5 +1,5 @@
 const dumpHTML = async (page) => {
-  const iframeHandle = await page.locator("iframe").elementHandle();
+  const iframeHandle = await page.locator("#content-iframe").elementHandle();
   if (iframeHandle) {
     const contentFrame = await iframeHandle.contentFrame();
     if (contentFrame) {
