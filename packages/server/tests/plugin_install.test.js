@@ -9,6 +9,7 @@ const {
 } = require("@saltcorn/admin-models/models/tenant");
 const { resetToFixtures } = require("../auth/testhelp");
 const db = require("@saltcorn/data/db");
+const { get_store_items } = require("../routes/plugins");
 
 beforeAll(async () => {
   if (!db.isSQLite) await db.query(`drop schema if exists test101 CASCADE `);
@@ -85,6 +86,64 @@ describe("Tenant cannot install unsafe plugins", () => {
         );
         const dbPlugin = await Plugin.findOne({ name: "sql-list" });
         expect(dbPlugin).toBe(null);
+      });
+    });
+    it("cannot install git plugins on tenant when tenants_install_git is false", async () => {
+      await db.runWithTenant("test101", async () => {
+        const loadAndSaveNewPlugin = Plugin.loadAndSaveNewPlugin;
+
+        await install_pack(
+          plugin_pack({
+            name: "some-git-plugin",
+            source: "git",
+            location: "https://github.com/example/some-git-plugin",
+          }),
+          "Some git plugin",
+          loadAndSaveNewPlugin
+        );
+        const dbPlugin = await Plugin.findOne({ name: "some-git-plugin" });
+        expect(dbPlugin).toBe(null);
+      });
+    });
+    it("cannot install github plugins on tenant when tenants_install_git is false", async () => {
+      await db.runWithTenant("test101", async () => {
+        const loadAndSaveNewPlugin = Plugin.loadAndSaveNewPlugin;
+
+        await install_pack(
+          plugin_pack({
+            name: "some-github-plugin",
+            source: "github",
+            location: "example/some-github-plugin",
+          }),
+          "Some github plugin",
+          loadAndSaveNewPlugin
+        );
+        const dbPlugin = await Plugin.findOne({ name: "some-github-plugin" });
+        expect(dbPlugin).toBe(null);
+      });
+    });
+    it("loadPlugin skips git plugin on tenant when tenants_install_git is false", async () => {
+      await db.runWithTenant("test101", async () => {
+        const result = await Plugin.loadPlugin(
+          new Plugin({
+            name: "some-git-plugin",
+            source: "git",
+            location: "https://github.com/example/some-git-plugin",
+          })
+        );
+        expect(result).toBeUndefined();
+      });
+    });
+    it("loadPlugin skips github plugin on tenant when tenants_install_git is false", async () => {
+      await db.runWithTenant("test101", async () => {
+        const result = await Plugin.loadPlugin(
+          new Plugin({
+            name: "some-github-plugin",
+            source: "github",
+            location: "example/some-github-plugin",
+          })
+        );
+        expect(result).toBeUndefined();
       });
     });
     it("can install unsafe plugins on tenant when permitted", async () => {
@@ -345,4 +404,65 @@ describe("Stable versioning upgrade", () => {
     expect(newPlugin).not.toBe(null);
     expect(newPlugin.version).toBe("0.1.0");
   });
+});
+
+describe("Tenant git plugin store filtering", () => {
+  const mockReq = { flash: () => {}, __: (s) => s };
+
+  if (!db.isSQLite) {
+    it("git plugin is excluded from installed list when tenants_install_git is false", async () => {
+      await db.runWithTenant("test101", async () => {
+        const gitPlugin = new Plugin({
+          name: "test-git-plugin",
+          source: "git",
+          location: "https://github.com/example/test-git-plugin",
+        });
+        await gitPlugin.upsert();
+
+        const items = await get_store_items(mockReq);
+        const names = items.map((i) => i.name);
+        expect(names).not.toContain("test-git-plugin");
+
+        await db.deleteWhere("_sc_plugins", { name: "test-git-plugin" });
+      });
+    });
+
+    it("github plugin is excluded from installed list when tenants_install_git is false", async () => {
+      await db.runWithTenant("test101", async () => {
+        const githubPlugin = new Plugin({
+          name: "test-github-plugin",
+          source: "github",
+          location: "example/test-github-plugin",
+        });
+        await githubPlugin.upsert();
+
+        const items = await get_store_items(mockReq);
+        const names = items.map((i) => i.name);
+        expect(names).not.toContain("test-github-plugin");
+
+        await db.deleteWhere("_sc_plugins", { name: "test-github-plugin" });
+      });
+    });
+
+    it("git plugin does not appear as installed in set=all when tenants_install_git is false", async () => {
+      await db.runWithTenant("test101", async () => {
+        const gitPlugin = new Plugin({
+          name: "test-git-plugin",
+          source: "git",
+          location: "https://github.com/example/test-git-plugin",
+        });
+        await gitPlugin.upsert();
+
+        const items = await get_store_items(mockReq);
+        const match = items.find((i) => i.name === "test-git-plugin");
+        expect(match).toBeUndefined();
+
+        await db.deleteWhere("_sc_plugins", { name: "test-git-plugin" });
+      });
+    });
+  } else {
+    it("does not support tenants on SQLite", async () => {
+      expect(db.isSQLite).toBe(true);
+    });
+  }
 });

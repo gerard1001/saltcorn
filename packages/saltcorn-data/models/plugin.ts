@@ -18,16 +18,20 @@ import fs from "fs/promises";
 import { existsSync } from "fs";
 import path from "path";
 import utils from "../utils";
-const { stringToJSON, isStale, getFetchProxyOptions, pluginsFolderRoot, isRoot } =
-  utils;
+const {
+  stringToJSON,
+  isStale,
+  getFetchProxyOptions,
+  pluginsFolderRoot,
+  isRoot,
+} = utils;
 
 const npmFetch = require("npm-registry-fetch");
 let packagejson: any = null;
 try {
   packagejson = require("../package.json");
-}
-catch (error: any) {
-  packagejson = require("../../package.json")
+} catch (error: any) {
+  packagejson = require("../../package.json");
 }
 
 /**
@@ -424,6 +428,14 @@ class Plugin implements AbstractPlugin {
   ): Promise<any> {
     const { getState, getRootState } = require("../db/state");
     const PluginInstaller = require("@saltcorn/plugins-loader/plugin_installer");
+    if (
+      !isRoot() &&
+      !getRootState().getConfig("tenants_install_git", false) &&
+      (plugin.source === "git" || plugin.source === "github")
+    ) {
+      console.error("\nWARNING: Skipping git/github plugin ", plugin.name);
+      return;
+    }
     if (plugin.source === "npm" && !Plugin.is_fixed_plugin(plugin.location)) {
       try {
         await Plugin.ensurePluginSupport(plugin, forceFetch);
@@ -566,6 +578,18 @@ class Plugin implements AbstractPlugin {
       "tenants_unsafe_plugins",
       false
     );
+    const tenants_install_git = getRootState().getConfig(
+      "tenants_install_git",
+      false
+    );
+    if (
+      !isRoot() &&
+      !tenants_install_git &&
+      (plugin.source === "git" || plugin.source === "github")
+    ) {
+      console.error("\nWARNING: Skipping git/github plugin ", plugin.name);
+      return;
+    }
     if (!isRoot() && !tenants_unsafe_plugins) {
       if (plugin.source !== "npm") {
         console.error("\nWARNING: Skipping unsafe plugin ", plugin.name);

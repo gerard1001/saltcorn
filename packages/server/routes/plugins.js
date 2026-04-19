@@ -189,7 +189,17 @@ const get_store_items = async (req) => {
   if (msgs.length > 0) req.flash("warning", msgs.join("<br>"));
   const packs_available = await fetch_available_packs();
   const packs_installed = getState().getConfig("installed_packs", []);
-  const installed_plugin_names = installed_plugins.map((p) => p.name);
+  const tenants_install_git = getRootState().getConfig(
+    "tenants_install_git",
+    false
+  );
+  const isGitBlocked = (p) =>
+    !isRoot &&
+    !tenants_install_git &&
+    (p.source === "git" || p.source === "github");
+  const installed_plugin_names = installed_plugins
+    .filter((p) => !isGitBlocked(p))
+    .map((p) => p.name);
   const store_plugin_names = instore.map((p) => p.name);
   const plugins_item = instore
     .map((plugin) => ({
@@ -208,7 +218,12 @@ const get_store_items = async (req) => {
     }))
     .filter((p) => !p.unsafe || isRoot || tenants_unsafe_plugins);
   const local_logins = installed_plugins
-    .filter((p) => !store_plugin_names.includes(p.name) && p.name !== "base")
+    .filter(
+      (p) =>
+        !store_plugin_names.includes(p.name) &&
+        p.name !== "base" &&
+        !isGitBlocked(p)
+    )
     .map((plugin) => ({
       name: plugin.name,
       installed: true,
@@ -1677,3 +1692,5 @@ router.post(
     }
   })
 );
+
+router.get_store_items = get_store_items;

@@ -58,9 +58,10 @@ const npmInstallNeeded = (oldPckJSON, newPckJSON) => {
 
 const defaultRootFolder = envPaths("saltcorn", { suffix: "plugins" }).data;
 
-// tracks local plugins already copied in this process
-// is only checked in the master process
+// tracks plugins already installed in this process (master process only)
 const installedLocalPlugins = new Set();
+const installedGitPlugins = new Set();
+const installedGithubPlugins = new Set();
 
 /**
  * Find the most recently created localversion_<timestamp> directory for a local plugin.
@@ -267,9 +268,13 @@ class PluginInstaller {
         }
         break;
       case "github":
-        if (this.force || !folderExists) {
+        if (
+          (this.force || !folderExists) &&
+          (!installedGithubPlugins.has(this.pluginDir) || this.reloadModule)
+        ) {
           getState().log(6, "downloading from github");
           await downloadFromGithub(this.plugin, this.rootFolder, this.tempDir);
+          installedGithubPlugins.add(this.pluginDir);
           wasLoaded = true;
         }
         break;
@@ -288,10 +293,14 @@ class PluginInstaller {
         }
         break;
       case "git":
-        if (this.force || !folderExists) {
+        if (
+          (this.force || !folderExists) &&
+          (!installedGitPlugins.has(this.pluginDir) || this.reloadModule)
+        ) {
           getState().log(6, "downloading from git");
           await gitPullOrClone(this.plugin, this.tempDir);
           this.pckJsonPath = join(this.pluginDir, "package.json");
+          installedGitPlugins.add(this.pluginDir);
           wasLoaded = true;
         }
         break;
