@@ -49,6 +49,7 @@ const {
   apply_calculated_fields_stored,
   recalculate_for_stored,
   get_expression_function,
+  get_async_expression_function,
   eval_expression,
   freeVariables,
   add_free_variables_to_joinfields,
@@ -1774,6 +1775,29 @@ class Table implements AbstractTable {
         Object.assign(v, valResCollector.set_fields);
     }
 
+    // Apply expression defaults that should always update (e.g. updatedAt/updatedBy)
+    for (const field of fields) {
+      if (
+        !field.primary_key &&
+        field.attributes?.default_expression &&
+        field.attributes?.expression_default_always
+      ) {
+        try {
+          const exprFn = get_async_expression_function(
+            field.attributes.default_expression,
+            fields,
+            {}
+          );
+          v[field.name] = await exprFn(v, use_user);
+        } catch (_e) {
+          state.log(
+            4,
+            `Error applying default_expression on update for field ${field.name}: ${(_e as Error).message}`
+          );
+        }
+      }
+    }
+
     if (fields.some((f: Field) => f.calculated && f.stored)) {
       //if any freevars are join fields, update row in db first
       const freeVarFKFields = new Set(
@@ -2369,6 +2393,29 @@ class Table implements AbstractTable {
     if ("error" in valResCollector) return valResCollector; //???
     if ("set_fields" in valResCollector)
       Object.assign(v_in, valResCollector.set_fields);
+
+    // Apply expression defaults for fields not provided by the caller
+    for (const field of fields) {
+      if (
+        !field.primary_key &&
+        field.attributes?.default_expression &&
+        (v_in[field.name] === undefined || v_in[field.name] === null)
+      ) {
+        try {
+          const exprFn = get_async_expression_function(
+            field.attributes.default_expression,
+            fields,
+            {}
+          );
+          v_in[field.name] = await exprFn(v_in, use_user);
+        } catch (_e) {
+          state.log(
+            4,
+            `Error applying default_expression for field ${field.name}: ${(_e as Error).message}`
+          );
+        }
+      }
+    }
 
     // On mobile (SQLite), PKs with a client-side default (e.g. UUID via the
     // uuid-type plugin's default_js) must be generated before the insert.
