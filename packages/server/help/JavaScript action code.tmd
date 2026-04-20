@@ -212,6 +212,10 @@ Use `emit_to_client' to send socket.io events to one or multiple clients. For ex
 ```
 emit_to_client({notify: "hello admin"}, 1);
 ```
-This event goes to each tab (and window) where the user is logged in. Otherwise, you can use an array or omit the second parameter to emit to default to the originating user. All return directives from the block above can be used.
+This event goes to each tab (and window) where the user is logged in. You can pass an array of user IDs, omit the second parameter to default to the originating user, or pass `null` to emit only to public (unauthenticated) users:
+```
+emit_to_client({notify: "hello public"}, null);
+```
+All return directives from the block above can be used.
 
 Include the constant `page_load_tag` in the object to only appear on the originating tab, for instance: `emit_to_client({notify: "Hello", page_load_tag})`.

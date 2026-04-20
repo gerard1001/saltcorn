@@ -1218,7 +1218,7 @@ class State {
           runAsync,
           tryCatchInTransaction: db.tryCatchInTransaction,
           commitAndBeginNewTransaction: db.commitAndBeginNewTransaction,
-          emit_to_client: (data: any, userIds: number[]) => {
+          emit_to_client: (data: any, userIds?: number[] | null) => {
             const enabled = this.getConfig("enable_dynamic_updates", true);
             if (!enabled) {
               this.log(
@@ -1227,11 +1227,13 @@ class State {
               );
               return;
             }
-            const safeIds = Array.isArray(userIds)
+            const safeIds: number[] | null | undefined = Array.isArray(userIds)
               ? userIds
-              : userIds
-                ? [userIds]
-                : [];
+              : userIds === null
+                ? null
+                : userIds
+                  ? [userIds as any]
+                  : [];
             this.emitDynamicUpdate(db.getTenantSchema(), data, safeIds);
           },
           Buffer: isNode() ? Buffer : require("buffer"),
@@ -1452,13 +1454,13 @@ class State {
    * For dynamic updates triggered from a run_js_code action
    * @param ten
    * @param data
-   * @param userIds - optional array of user IDs to send the update to
+   * @param userIds - array of user IDs to target specific users, null to broadcast to public (unauthenticated) users only, undefined to broadcast to authenticated users only
    * @param noMultiNodePropagate - if true, do not propagate to other nodes in multi-node setup
    */
   emitDynamicUpdate(
     ten: string,
     data: any,
-    userIds?: number[],
+    userIds?: number[] | null,
     noMultiNodePropagate?: boolean
   ) {
     if (this.hasJoinedDynamicUpdateSockets)
@@ -1468,7 +1470,7 @@ class State {
       this.processSend({
         dynamic_update: data,
         tenant: ten,
-        userIds: userIds || [],
+        userIds: userIds,
       });
     }
   }

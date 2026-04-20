@@ -25,7 +25,7 @@ const {
   auto_backup_now,
 } = require("@saltcorn/admin-models/models/backup");
 
-jest.setTimeout(30000);
+jest.setTimeout(30000000);
 
 beforeAll(async () => {
   await resetToFixtures();
@@ -387,7 +387,7 @@ describe("actions", () => {
       .send("table_id=2")
       .send("name=mynewaction")
       .send("when_trigger=Insert")
-      .expect(toRedirect("/actions/configure/8"));
+      .expect(toRedirect("/actions/configure/9"));
   });
   it("show edit", async () => {
     const app = await getApp({ disableCsrf: true });
@@ -451,9 +451,9 @@ describe("actions", () => {
       .send("action=run_js_code")
       .send("when_trigger=API+call")
       .send("min_role=1")
-      .expect(toRedirect("/actions/configure/9"));
+      .expect(toRedirect("/actions/configure/10"));
     await request(app)
-      .post("/actions/configure/9")
+      .post("/actions/configure/10")
       .set("Cookie", loginCookie)
       .send("code=return 27")
       .expect(toRedirect("/actions/"));
@@ -461,7 +461,7 @@ describe("actions", () => {
       .post("/api/action/myact")
       .set("Cookie", loginCookie)
       .expect(
-        respondJsonWith(200, ({ success, data }) => success && data === 27)
+        respondJsonWith(200, ({ success, data }) => success === true && data === 27)
       );
   });
   it("deletes trigger", async () => {

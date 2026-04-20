@@ -851,16 +851,18 @@ const setupSocket = (subdomainOffset, pruneSessionInterval, ...servers) => {
 
   // dynamic updates emitter (for run_js_actions)
   getState().setDynamicUpdateEmitter((tenant, data, userIds) => {
-    if (userIds) {
+    if (userIds === null) {
+      // explicit public-only; data may carry page_load_tag for client-side filtering
+      io.of("/").to(`_${tenant}_public_dynamic_update_room`).emit("dynamic_update", data);
+    } else if (userIds) {
       for (const userId of userIds) {
         io.of("/")
           .to(`_${tenant}:${userId}_dynamic_update_room`)
           .emit("dynamic_update", data);
       }
     } else {
-      io.of("/")
-        .to(`_${tenant}_dynamic_update_room`)
-        .emit("dynamic_update", data);
+      // undefined: broadcast to authenticated users only
+      io.of("/").to(`_${tenant}_dynamic_update_room`).emit("dynamic_update", data);
     }
   });
 
@@ -961,9 +963,12 @@ const setupSocket = (subdomainOffset, pruneSessionInterval, ...servers) => {
           const enabled = getState().getConfig("enable_dynamic_updates", true);
           if (!enabled) throw new Error("Dynamic updates are not enabled");
           const user = socket.request.user;
-          if (!user) throw new Error("Not authorized");
-          socket.join(`_${tenant}_dynamic_update_room`);
-          socket.join(`_${tenant}:${user.id}_dynamic_update_room`);
+          if (user) {
+            socket.join(`_${tenant}_dynamic_update_room`);
+            socket.join(`_${tenant}:${user.id}_dynamic_update_room`);
+          } else {
+            socket.join(`_${tenant}_public_dynamic_update_room`);
+          }
           const socketIds = await getState().getConfig(
             "joined_dynamic_update_socket_ids",
             []

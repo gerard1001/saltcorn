@@ -3337,7 +3337,8 @@ const run_action_column = async ({
       eval_js: "reset_spinners()",
       page_load_tag: req.headers["page-load-tag"],
     };
-    state.emitDynamicUpdate(db.getTenantSchema(), reset_msg);
+    const userIds = req.user ? undefined : null;
+    state.emitDynamicUpdate(db.getTenantSchema(), reset_msg, userIds);
   };
   const successAsyncHandler = (data: GenObj) => {
     const state = getState();
@@ -3345,7 +3346,8 @@ const run_action_column = async ({
     const emitData = { ...data };
     if (req.headers["page-load-tag"])
       emitData.page_load_tag = req.headers["page-load-tag"];
-    state.emitDynamicUpdate(db.getTenantSchema(), emitData);
+    const userIds = req.user ? undefined : null;
+    state.emitDynamicUpdate(db.getTenantSchema(), emitData, userIds);
     if (
       !emitData.resume_workflow &&
       !emitData.popup?.startsWith?.("/actions/fill-workflow-form/")
@@ -3359,7 +3361,7 @@ const run_action_column = async ({
       state.emitDynamicUpdate(db.getTenantSchema(), {
         error: err.message || err,
         page_load_tag: req.headers["page-load-tag"],
-      });
+      }, req.user ? undefined : null);
     }
     reset_spinner(state);
   };

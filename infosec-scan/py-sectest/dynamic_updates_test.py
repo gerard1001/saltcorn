@@ -70,6 +70,95 @@ class Test:
     time.sleep(1)
     assert len(client.updates) == 3
 
+  def test_connect_public(self):
+    client = DynamicUpdatesClient()
+    client.connect_as_public()
+    assert client.sio.connected
+    client.sio.disconnect()
+
+  def test_join_dynamic_updates_room_public(self):
+    client = DynamicUpdatesClient()
+    client.connect_as_public()
+    client.join_dynamic_updates_room()
+    time.sleep(1)
+
+  def test_run_trigger_public(self):
+    public_client = DynamicUpdatesClient()
+    public_client.connect_as_public()
+    public_client.join_dynamic_updates_room()
+    time.sleep(0.5)  # wait for room join to complete
+
+    # public session can't call trigger API — use a logged-in client to fire triggers
+    admin_client = DynamicUpdatesClient()
+    admin_client.login(email=adminEmail, password=adminPassword)
+
+    admin_client.run_trigger("emit_to_admin")
+    time.sleep(1)
+    assert len(public_client.updates) == 0
+    admin_client.run_trigger("emit_to_staff")
+    time.sleep(1)
+    assert len(public_client.updates) == 0
+    admin_client.run_trigger("emit_to_admin_and_staff")
+    time.sleep(1)
+    assert len(public_client.updates) == 0
+    admin_client.run_trigger("emit_to_public")
+    time.sleep(1)
+    assert len(public_client.updates) == 1
+
+  def test_broadcast_reaches_multiple_public_clients(self):
+    # Both public clients join with distinct page_load_tags; broadcast reaches both
+    client_a = DynamicUpdatesClient()
+    client_a.connect_as_public()
+    client_a.join_dynamic_updates_room()
+
+    client_b = DynamicUpdatesClient()
+    client_b.connect_as_public()
+    client_b.join_dynamic_updates_room()
+    time.sleep(0.5)
+
+    assert client_a.page_load_tag != client_b.page_load_tag
+
+    admin_client = DynamicUpdatesClient()
+    admin_client.login(email=adminEmail, password=adminPassword)
+    admin_client.run_trigger("emit_to_public")
+    time.sleep(1)
+    assert len(client_a.updates) == 1
+    assert len(client_b.updates) == 1
+    client_a.sio.disconnect()
+    client_b.sio.disconnect()
+
+  def test_public_clients_receive_page_load_tag_in_emit(self):
+    # Server broadcasts to all public clients; each client receives the page_load_tag
+    # that was sent with the triggering request so client-side filtering can work.
+    client_a = DynamicUpdatesClient()
+    client_a.connect_as_public()
+    client_a.join_dynamic_updates_room()
+
+    client_b = DynamicUpdatesClient()
+    client_b.connect_as_public()
+    client_b.join_dynamic_updates_room()
+    time.sleep(0.5)
+
+    assert client_a.page_load_tag != client_b.page_load_tag
+
+    admin_client = DynamicUpdatesClient()
+    admin_client.login(email=adminEmail, password=adminPassword)
+    # Fire trigger tagged with client_a's page_load_tag
+    admin_client.run_trigger("emit_to_public", page_load_tag=client_a.page_load_tag)
+    time.sleep(1)
+
+    # Both clients receive the emit (server does not filter by page_load_tag)
+    assert len(client_a.updates) == 1
+    assert len(client_b.updates) == 1
+
+    # The emitted data carries the page_load_tag so each client can filter client-side
+    received_tag = client_a.updates[0].get("page_load_tag")
+    assert received_tag == client_a.page_load_tag
+    assert received_tag != client_b.page_load_tag
+
+    client_a.sio.disconnect()
+    client_b.sio.disconnect()
+
   def test_run_trigger_user(self):
     client = DynamicUpdatesClient()
     client.login(email=userEmail, password=userPassword)

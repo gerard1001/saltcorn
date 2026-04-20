@@ -103,20 +103,23 @@ const consoleInterceptor = (state: any) => {
 };
 
 const emit_to_client =
-  (user?: User | AbstractUser) => (data: any, userIds?: number | number[]) => {
+  (user?: User | AbstractUser) =>
+  (data: any, userIds?: number | number[] | null) => {
     const state = getState()!;
     const enabled = getState()!.getConfig("enable_dynamic_updates", true);
     if (!enabled) {
       state.log(5, "emit_to_client called, but dynamic updates are disabled");
       return;
     }
-    const safeIds = Array.isArray(userIds)
+    const safeIds: number[] | null | undefined = Array.isArray(userIds)
       ? userIds
-      : userIds
-        ? [userIds]
-        : user?.id
-          ? [user.id]
-          : [];
+      : userIds === null
+        ? null
+        : userIds
+          ? [userIds]
+          : user?.id
+            ? [user.id]
+            : [];
     state.emitDynamicUpdate(db.getTenantSchema(), data, safeIds);
   };
 

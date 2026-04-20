@@ -2610,7 +2610,19 @@ export = async (): Promise<void> => {
     run_where: "Server",
     when_trigger: "API call",
     configuration: {
-      code: `emit_to_client({notify: "hello public"});`,
+      code: `emit_to_client({notify: "hello world"});`,
+    },
+    min_role: undefined,
+  } as any);
+  await Trigger.create({
+    name: "emit_to_public",
+    action: "run_js_code",
+    description: "",
+    table_id: undefined,
+    run_where: "Server",
+    when_trigger: "API call",
+    configuration: {
+      code: `emit_to_client({notify: "hello public", page_load_tag}, null);`,
     },
     min_role: undefined,
   } as any);

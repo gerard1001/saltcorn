@@ -2435,7 +2435,8 @@ const workflowRunPromiseHandler = (promise, run, req) => {
         ...retDirs,
         page_load_tag: req.headers["page-load-tag"],
       };
-      getState().emitDynamicUpdate(db.getTenantSchema(), emitData);
+      const userIds = req.user ? undefined : null;
+      getState().emitDynamicUpdate(db.getTenantSchema(), emitData, userIds);
       if (
         !emitData.resume_workflow &&
         !emitData.popup?.startsWith?.("/actions/fill-workflow-form/")
@@ -2443,14 +2444,14 @@ const workflowRunPromiseHandler = (promise, run, req) => {
         getState().emitDynamicUpdate(db.getTenantSchema(), {
           eval_js: "reset_spinners()",
           page_load_tag: req.headers["page-load-tag"],
-        });
+        }, userIds);
     })
     .catch((e) => {
       console.error(e);
       getState().emitDynamicUpdate(db.getTenantSchema(), {
         error: e.message,
         page_load_tag: req.headers["page-load-tag"],
-      });
+      }, req.user ? undefined : null);
     });
 };
 

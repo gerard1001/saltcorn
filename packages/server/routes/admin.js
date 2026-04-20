@@ -5309,7 +5309,7 @@ router.get(
 declare var console: Console;
 function setTimeout(f:Function, timeout?:number)
 declare const page_load_tag: string
-function emit_to_client(message: object, to_user_ids?: number | number[])
+function emit_to_client(message: object, to_user_ids?: number | number[] | null)
 function emitEvent(eventType: ${Trigger.when_options.map(o=>`"${o}"`).join(" | ")}, channel?: string, payload?: any)
 async function sleep(milliseconds: number)
 function interpolate(s: string,
