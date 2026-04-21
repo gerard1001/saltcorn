@@ -1348,6 +1348,7 @@ router.post(
         undefined,
         req.user
       );
+    if (fv?.fill_options) await fv.fill_options(field);
     if (!fv && field.type === "Key" && fieldview === "select")
       res.send(
         `<input ${
