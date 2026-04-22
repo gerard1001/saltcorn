@@ -1313,7 +1313,8 @@ class Field implements AbstractField {
     if (
       !f.calculated &&
       typeof f.attributes.default === "undefined" &&
-      f.attributes.default_expression
+      f.attributes.default_expression &&
+      !db.isSQLite
     ) {
       try {
         const exprFn = get_async_expression_function(
@@ -1329,14 +1330,12 @@ class Field implements AbstractField {
     }
     if (!f.calculated || f.stored) {
       if (typeof f.attributes.default === "undefined") {
-        if (!db.isSQLite) {
-          const q = `alter table ${schema}"${sqlsanitize(
-            table.name
-          )}" add column "${sqlsanitize(f.name)}" ${sql_type} ${
-            f.required ? `not null ${is_sqlite ? 'default ""' : ""}` : ""
-          }`;
-          await db.query(q);
-        }
+        const q = `alter table ${schema}"${sqlsanitize(
+          table.name
+        )}" add column "${sqlsanitize(f.name)}" ${sql_type} ${
+          f.required ? `not null ${is_sqlite ? 'default ""' : ""}` : ""
+        }`;
+        await db.query(q);
       } else if (is_sqlite) {
         //warning: not safe but for sqlite we don't care
         const q = `alter table ${schema}"${sqlsanitize(

@@ -1028,7 +1028,7 @@ class Table implements AbstractTable {
             const insertParams: any[] = [tsParam];
             const valueClauses = pkVals.map((pkVal, i) => {
               const ownerVal = ownerFieldName
-                ? ids[i][ownerFieldName] ?? null
+                ? (ids[i][ownerFieldName] ?? null)
                 : null;
               const ownerFieldsVal =
                 formulaTopKeys && formulaTopKeys.length > 0
@@ -1775,29 +1775,6 @@ class Table implements AbstractTable {
         Object.assign(v, valResCollector.set_fields);
     }
 
-    // Apply expression defaults that should always update (e.g. updatedAt/updatedBy)
-    for (const field of fields) {
-      if (
-        !field.primary_key &&
-        field.attributes?.default_expression &&
-        field.attributes?.expression_default_always
-      ) {
-        try {
-          const exprFn = get_async_expression_function(
-            field.attributes.default_expression,
-            fields,
-            {}
-          );
-          v[field.name] = await exprFn(v, use_user);
-        } catch (_e) {
-          state.log(
-            4,
-            `Error applying default_expression on update for field ${field.name}: ${(_e as Error).message}`
-          );
-        }
-      }
-    }
-
     if (fields.some((f: Field) => f.calculated && f.stored)) {
       //if any freevars are join fields, update row in db first
       const freeVarFKFields = new Set(
@@ -2394,12 +2371,12 @@ class Table implements AbstractTable {
     if ("set_fields" in valResCollector)
       Object.assign(v_in, valResCollector.set_fields);
 
-    // Apply expression defaults for fields not provided by the caller
+    // Apply expression defaults for fields not provided or left null by the caller
     for (const field of fields) {
       if (
         !field.primary_key &&
         field.attributes?.default_expression &&
-        (v_in[field.name] === undefined || v_in[field.name] === null)
+        (!(field.name in v_in) || v_in[field.name] == null)
       ) {
         try {
           const exprFn = get_async_expression_function(

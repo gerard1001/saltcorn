@@ -254,17 +254,13 @@ const fieldFlow = (req) =>
         context.set_default === undefined || context.set_default === true;
       if (setDefault && context.default_type === "expression") {
         attributes.default_expression = context.default_expression;
-        attributes.expression_default_always =
-          context.expression_default_always;
         attributes.default = undefined;
       } else if (setDefault) {
         attributes.default = context.default;
         attributes.default_expression = undefined;
-        attributes.expression_default_always = undefined;
       } else {
         attributes.default = undefined;
         attributes.default_expression = undefined;
-        attributes.expression_default_always = undefined;
       }
       attributes.summary_field = context.summary_field;
       attributes.include_fts = context.include_fts;
@@ -877,15 +873,7 @@ function setDefaultExpressionValue(val) {
                 },
                 showIf: expressionShowIf,
               },
-              {
-                name: "expression_default_always",
-                label: req.__("Apply on every update"),
-                sublabel: req.__(
-                  "If checked, re-evaluates and overwrites the field on every row update (useful for updatedAt / updatedBy)"
-                ),
-                type: "Bool",
-                showIf: expressionShowIf,
-              },
+
             ],
           });
           const hasExprDefault = !!context.default_expression;

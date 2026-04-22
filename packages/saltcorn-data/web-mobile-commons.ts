@@ -300,7 +300,8 @@ const prepare_insert_row = async (row: any, fields: Field[]) => {
       field.required &&
       !field.primary_key &&
       typeof row[field.name] === "undefined" &&
-      !field.attributes.default
+      !field.attributes.default &&
+      !field.attributes.default_expression
     ) {
       errors.push(`${field.name}: required`);
     }
