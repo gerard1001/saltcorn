@@ -248,7 +248,20 @@ const fieldFlow = (req) =>
     onDone: async (context) => {
       //const thetype = getState().types[context.type];
       const attributes = context.attributes || {};
-      attributes.default = context.default;
+      // attributes.default = context.default;
+
+      const setDefault =
+        context.set_default === undefined || context.set_default === true;
+      if (setDefault && context.default_type === "expression") {
+        attributes.default_expression = context.default_expression;
+        attributes.default = undefined;
+      } else if (setDefault) {
+        attributes.default = context.default;
+        attributes.default_expression = undefined;
+      } else {
+        attributes.default = undefined;
+        attributes.default_expression = undefined;
+      }
       attributes.summary_field = context.summary_field;
       attributes.include_fts = context.include_fts;
       attributes.on_delete_cascade = context.on_delete_cascade;
@@ -753,10 +766,9 @@ const fieldFlow = (req) =>
           const nrows = await table.countRows();
           const formfield = new Field({
             name: "default",
-            label: req.__("Default"),
-            // todo sublabel
+            label: req.__("Default value"),
             type: context.type,
-            required: true,
+            required: false,
             attributes: {
               summary_field: context.summary_field,
               ...(context.attributes || {}),
@@ -764,7 +776,61 @@ const fieldFlow = (req) =>
           });
           await formfield.fill_fkey_options();
           const defaultOptional = nrows === 0 || context.id;
-          if (defaultOptional) formfield.showIf = { set_default: true };
+          const setDefaultShowIf = defaultOptional
+            ? { set_default: true }
+            : undefined;
+
+          if (setDefaultShowIf)
+            formfield.showIf = {
+              ...setDefaultShowIf,
+              default_type: "fixed",
+            };
+          else formfield.showIf = { default_type: "fixed" };
+
+          const defaultTypeOptions = [
+            { label: req.__("Fixed value"), name: "fixed" },
+            { label: req.__("Expression"), name: "expression" },
+          ];
+
+          const expressionShowIf = setDefaultShowIf
+            ? { ...setDefaultShowIf, default_type: "expression" }
+            : { default_type: "expression" };
+
+          const attrEscape = (s) =>
+            s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+          const presets = [
+            {
+              label: req.__("Current user ID"),
+              expr: "user && user.id",
+            },
+            {
+              label: req.__("Current user email"),
+              expr: "user && user.email",
+            },
+            {
+              label: req.__("Current timestamp"),
+              expr: "new Date()",
+            },
+            {
+              label: req.__("Current date (ISO)"),
+              expr: "new Date().toISOString().substring(0, 10)",
+            },
+          ];
+          const presetButtons = presets
+            .map(
+              (p) =>
+                `<button type="button" class="btn btn-sm btn-outline-secondary me-1 mb-1" onclick="setDefaultExpressionValue(${attrEscape(JSON.stringify(p.expr))})">${p.label}</button>`
+            )
+            .join("");
+          const setterScript = `<script>
+function setDefaultExpressionValue(val) {
+  var ta = document.querySelector('[name="default_expression"]');
+  if (!ta) return;
+  var monacoDiv = ta.nextElementSibling;
+  var ed = monacoDiv && $(monacoDiv).data && $(monacoDiv).data("monaco-editor");
+  if (ed) { ed.setValue(val); } else { ta.value = val; }
+}
+</script>`;
 
           const form = new Form({
             blurb: defaultOptional
@@ -774,16 +840,53 @@ const fieldFlow = (req) =>
                 ),
             fields: [
               ...(defaultOptional
-                ? [{ name: "set_default", label: "Set Default", type: "Bool" }]
+                ? [
+                    {
+                      name: "set_default",
+                      label: req.__("Set Default"),
+                      type: "Bool",
+                    },
+                  ]
                 : []),
+              {
+                name: "default_type",
+                label: req.__("Default type"),
+                type: "String",
+                attributes: {
+                  options: defaultTypeOptions,
+                },
+                showIf: setDefaultShowIf,
+              },
               formfield,
+              {
+                name: "default_expression",
+                label: req.__("Expression"),
+                sublabel:
+                  req.__(
+                    "JavaScript expression. Available: <code>user</code> (current user). Can be async."
+                  ) +
+                  `<div class="mt-1">${presetButtons}</div>${setterScript}`,
+                input_type: "code",
+                attributes: {
+                  mode: "application/javascript",
+                  user: true,
+                },
+                showIf: expressionShowIf,
+              },
+
             ],
           });
-          if (
+          const hasExprDefault = !!context.default_expression;
+          const hasFixedDefault =
             typeof context.default !== "undefined" &&
-            context.default !== null
-          )
+            context.default !== null &&
+            !hasExprDefault;
+          if (hasExprDefault || hasFixedDefault) {
             form.values.set_default = true;
+            form.values.default_type = hasExprDefault ? "expression" : "fixed";
+          } else {
+            form.values.default_type = "fixed";
+          }
           return form;
         },
       },

@@ -181,10 +181,11 @@ const typeToGridType = (t, field) => {
       format: "iso",
     };
     jsgField.editor = "__flatpickerEditor";
-    jsgField.formatter = "datetime";
-    jsgField.formatterParams = {
-      inputFormat: "iso",
-    };
+    // jsgField.formatter = "datetime";
+    // jsgField.formatterParams = {
+    //   inputFormat: "iso",
+    // };
+    jsgField.formatter = "__isoDateTimeFormatter";
 
     if (field.attributes?.day_only) {
       jsgField.editorParams = { dayOnly: true };

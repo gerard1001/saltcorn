@@ -10,6 +10,7 @@ const {
   recalculate_for_stored,
   jsexprToWhere,
   eval_expression,
+  get_async_expression_function,
   freeVariables,
 } = require("./expression");
 import { sqlsanitize } from "@saltcorn/db-common/internal";
@@ -1129,13 +1130,14 @@ class Field implements AbstractField {
       if (
         typeof f.attributes.default === "undefined" ||
         f.attributes.default === null
-      )
-        await db.query(
-          `alter table ${schema}"${sqlsanitize(
-            table!.name // ensured above
-          )}" alter column "${sqlsanitize(this.name)}" drop default;`
-        );
-      else {
+      ) {
+        if (!db.isSQLite)
+          await db.query(
+            `alter table ${schema}"${sqlsanitize(
+              table!.name // ensured above
+            )}" alter column "${sqlsanitize(this.name)}" drop default;`
+          );
+      } else {
         const q = `DROP FUNCTION IF EXISTS edit_field_${sqlsanitize(f.name)};
         CREATE FUNCTION edit_field_${sqlsanitize(f.name)}(thedef ${
           f.sql_bare_type
@@ -1308,6 +1310,24 @@ class Field implements AbstractField {
 
     const sql_type = bare ? f.sql_bare_type : f.sql_type;
     const table = fld.table || Table.findOne({ id: f.table_id });
+    if (
+      !f.calculated &&
+      typeof f.attributes.default === "undefined" &&
+      f.attributes.default_expression &&
+      !db.isSQLite
+    ) {
+      try {
+        const exprFn = get_async_expression_function(
+          f.attributes.default_expression,
+          [],
+          {}
+        );
+        const evaluated = await exprFn({}, null);
+        if (evaluated != null) f.attributes.default = evaluated;
+      } catch (_e) {
+        // expression may need user context; proceed without SQL default
+      }
+    }
     if (!f.calculated || f.stored) {
       if (typeof f.attributes.default === "undefined") {
         const q = `alter table ${schema}"${sqlsanitize(
