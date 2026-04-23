@@ -67,6 +67,7 @@ const jwtOpts = {
   secretOrKey: jwt_secret,
   issuer: "saltcorn@saltcorn",
   audience: "saltcorn-mobile-app",
+  passReqToCallback: true,
 };
 
 const disabledCsurf = (req, res, next) => {
@@ -361,9 +362,10 @@ const getApp = async (opts = {}) => {
     })
   );
   passport.use(
-    new JwtStrategy(jwtOpts, async (jwt_payload, done) => {
+    new JwtStrategy(jwtOpts, async (req, jwt_payload, done) => {
       const userCheck = async () => {
         if (jwt_payload.sub === "public") {
+          req.jwtAuthenticated = true;
           return done(null, { role_id: 100 });
         }
         const u = await User.findOne({ email: jwt_payload.sub });
@@ -376,6 +378,7 @@ const getApp = async (opts = {}) => {
             ? new Date(u.last_mobile_login).valueOf()
             : u.last_mobile_login) <= jwt_payload.iat
         ) {
+          req.jwtAuthenticated = true;
           return done(null, u.session_object);
         } else {
           return done(null, false);
@@ -424,9 +427,6 @@ const getApp = async (opts = {}) => {
 
   app.use(wrapper(version_tag));
 
-  app.use("/api", api);
-  app.use("/scapi", scapi);
-
   const pluginRoutesHandler = new PluginRoutesHandler();
   await eachTenant(async () => {
     pluginRoutesHandler.initTenantRouter(
@@ -455,7 +455,8 @@ const getApp = async (opts = {}) => {
           (req.url.startsWith("/api/") ||
             req.url === "/auth/login-with/jwt" ||
             req.url === "/auth/signup")) ||
-        jwt_extractor(req) ||
+        req.jwtAuthenticated ||
+        req.headers.authorization?.toLowerCase().startsWith("bearer ") ||
         req.url === "/auth/callback/saml" ||
         req.url.startsWith("/notifications/share-handler") ||
         req.url.startsWith("/notifications/manifest")
@@ -464,6 +465,9 @@ const getApp = async (opts = {}) => {
       csurf(req, res, next);
     });
   } else app.use(disabledCsurf);
+
+  app.use("/api", api);
+  app.use("/scapi", scapi);
 
   mountRoutes(app);
   // set tenant homepage as / root
