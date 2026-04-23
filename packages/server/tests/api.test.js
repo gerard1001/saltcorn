@@ -822,7 +822,10 @@ describe("API emit-event access control", () => {
         .set("Authorization", `jwt ${adminJwt}`)
         .send({ payload: {} })
         .expect(
-          respondJsonWith(403, (resp) => resp.error === "Event type not allowed")
+          respondJsonWith(
+            403,
+            (resp) => resp.error === "Event type not allowed"
+          )
         );
     }
   });
@@ -1223,5 +1226,57 @@ describe("API cross-table sub-select access control", () => {
     const rows1 = resp1.body.success || [];
     const rows2 = resp2.body.success || [];
     expect(rows1.length).toBe(rows2.length);
+  });
+});
+
+describe("API CSRF protection", () => {
+  let adminToken, adminJwt;
+
+  beforeAll(async () => {
+    const admin = await User.findOne({ email: "admin@foo.com" });
+    adminToken = await admin.getNewAPIToken();
+    adminJwt = await getAdminJwt();
+  });
+
+  it("should reject POST with session cookie but no CSRF token", async () => {
+    const app = await getApp({ disableCsrf: false });
+    const loginCookie = await getAdminLoginCookie();
+    await request(app)
+      .post("/api/books/")
+      .set("Cookie", loginCookie)
+      .send({ author: "CSRF Test", pages: 1 })
+      .set("Content-Type", "application/json")
+      .expect(302);
+  });
+
+  it("should allow POST with bearer token and no CSRF token", async () => {
+    const app = await getApp({ disableCsrf: false });
+    await request(app)
+      .post("/api/books/")
+      .set("Authorization", "Bearer " + adminToken)
+      .send({ author: "Bearer No CSRF", pages: 2 })
+      .set("Content-Type", "application/json")
+      .set("Accept", "application/json")
+      .expect(succeedJsonWith((resp) => resp && typeof resp === "number"));
+  });
+
+  it("should allow POST with valid JWT and no CSRF token", async () => {
+    const app = await getApp({ disableCsrf: false });
+    await request(app)
+      .post("/api/books/")
+      .set("Authorization", `jwt ${adminJwt}`)
+      .send({ author: "JWT No CSRF", pages: 3 })
+      .set("Content-Type", "application/json")
+      .set("Accept", "application/json")
+      .expect(succeedJsonWith((resp) => resp && typeof resp === "number"));
+  });
+
+  it("should not bypass CSRF by appending a fake ?jwt= query parameter", async () => {
+    const app = await getApp({ disableCsrf: false });
+    await request(app)
+      .post("/api/books/?jwt=fakejwt")
+      .send({ author: "CSRF Bypass Attempt", pages: 4 })
+      .set("Content-Type", "application/json")
+      .expect(302);
   });
 });
