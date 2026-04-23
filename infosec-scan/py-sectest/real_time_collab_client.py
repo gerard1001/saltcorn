@@ -27,12 +27,13 @@ class RealTimeCollabClient:
     self.csrf = self.session.csrf()
 
   def login(self, email, password):
-    self.session.postForm('/auth/login', 
-        {'email': email, 
-          'password': password, 
+    self.session.postForm('/auth/login',
+        {'email': email,
+          'password': password,
           '_csrf': self.csrf
         })
     assert self.session.redirect_url == '/'
+    self.session.get('/')  # refresh CSRF for the new post-login session
 
   def connect(self):
     auth_headers = 'connect.sid=' + self.session.sessionID() + '; loggedin=true'

@@ -31,8 +31,10 @@ class Session:
     resp = self.session.post(urljoin(self.base_url, url), data=data, allow_redirects=allow_redirects)
     self.__read_response(resp)
 
-  def apiPost(self, url, data, allow_redirects=False, extra_headers=None):
+  def apiPost(self, url, data, allow_redirects=False, extra_headers=None, csrf_token=None):
     headers = {'Content-Type': 'application/json', **(extra_headers or {})}
+    if csrf_token:
+      headers['x-csrf-token'] = csrf_token
     resp = self.session.post(urljoin(self.base_url, url), json=data, headers=headers, allow_redirects=allow_redirects)
     self.__read_response(resp)
 

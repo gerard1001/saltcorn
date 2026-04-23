@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 class SaltcornSession(Session):
   def __init__(self, port=3001, open_process=True, env_vars=None, pipe_output=False):
     self.salcorn_process = None
+    self._last_csrf = ''
     self.open(port, open_process, env_vars, pipe_output)
 
   def __del__(self):
@@ -28,6 +29,16 @@ class SaltcornSession(Session):
       return m[0]
     else:
       return ""
+
+  def get(self, url, allow_redirects=False, timeout=30):
+    super().get(url, allow_redirects=allow_redirects, timeout=timeout)
+    token = self.csrf()
+    if token:
+      self._last_csrf = token
+
+  def apiPost(self, url, data, allow_redirects=False, extra_headers=None):
+    super().apiPost(url, data, allow_redirects=allow_redirects,
+                    extra_headers=extra_headers, csrf_token=self._last_csrf or None)
 
   def close(self):
     if self.salcorn_process is not None:
