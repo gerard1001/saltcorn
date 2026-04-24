@@ -8,6 +8,7 @@ const Router = require("express-promise-router");
 
 const db = require("@saltcorn/data/db");
 const Table = require("@saltcorn/data/models/table");
+const Field = require("@saltcorn/data/models/field");
 const File = require("@saltcorn/data/models/file");
 const View = require("@saltcorn/data/models/view");
 const User = require("@saltcorn/data/models/user");
@@ -862,6 +863,16 @@ router.get(
             },
             req.__("Add field to table")
           ),
+        !table.external &&
+          !table.provider_name &&
+          user_can_edit_tables &&
+          a(
+            {
+              class: "btn btn-outline-secondary ms-2",
+              href: `javascript:ajax_modal('/table/create-standard-fields/${table.id}')`,
+            },
+            req.__("Create standard fields")
+          ),
       ];
     } else {
       const tableHtml = mkTable(
@@ -945,6 +956,16 @@ router.get(
               class: "btn btn-primary add-field mt-2",
             },
             req.__("Add field")
+          ),
+        !table.external &&
+          !table.provider_name &&
+          user_can_edit_tables &&
+          a(
+            {
+              class: "btn btn-outline-secondary ms-2 mt-2",
+              href: `javascript:ajax_modal('/table/create-standard-fields/${table.id}')`,
+            },
+            req.__("Create standard fields")
           ),
       ];
     }
@@ -2679,6 +2700,120 @@ router.post(
       }
     });
     await getState().refresh_views();
+    res.redirect(`/table/${table.id}`);
+  })
+);
+
+const standardFieldDefs = (req) => [
+  {
+    name: "name",
+    label: req.__("Name"),
+    type: "String",
+    fieldType: "String",
+  },
+  {
+    name: "description",
+    label: req.__("Description"),
+    type: "String",
+    fieldType: "String",
+  },
+  {
+    name: "created_at",
+    label: req.__("Created at"),
+    type: "Date",
+    fieldType: "Date",
+  },
+  {
+    name: "updated_at",
+    label: req.__("Updated at"),
+    type: "Date",
+    fieldType: "Date",
+  },
+  {
+    name: "created_by",
+    label: req.__("Created by"),
+    type: "Key to user",
+    fieldType: "Key",
+    reftable_name: "users",
+  },
+  {
+    name: "updated_by",
+    label: req.__("Updated by"),
+    type: "Key to user",
+    fieldType: "Key",
+    reftable_name: "users",
+  },
+];
+
+const standardFieldForm = (table, req) => {
+  const defs = standardFieldDefs(req);
+  return new Form({
+    submitLabel: req.__("Create fields"),
+    action: `/table/create-standard-fields/${table.id}`,
+    formStyle: "vert",
+    fields: defs.map((def) => ({
+      type: "Bool",
+      label: `${def.label} (${def.type})`,
+      name: def.name,
+      default: true,
+    })),
+  });
+};
+
+router.get(
+  "/create-standard-fields/:id",
+  isAdminOrHasConfigMinRole("min_role_edit_tables"),
+  error_catcher(async (req, res) => {
+    const { id } = req.params;
+    const table = Table.findOne({ id });
+    if (!table) {
+      req.flash("error", `Table not found`);
+      res.redirect(`/table`);
+      return;
+    }
+    res.set("Page-Title", req.__("Create standard fields"));
+    const form = standardFieldForm(table, req);
+    res.send(renderForm(form, req.csrfToken()));
+  })
+);
+
+router.post(
+  "/create-standard-fields/:id",
+  isAdminOrHasConfigMinRole("min_role_edit_tables"),
+  error_catcher(async (req, res) => {
+    const { id } = req.params;
+    const table = Table.findOne({ id });
+    if (!table) {
+      req.flash("error", `Table not found`);
+      res.redirect(`/table`);
+      return;
+    }
+    const form = standardFieldForm(table, req);
+    form.validate(req.body || {});
+    if (form.hasErrors) {
+      req.flash("error", req.__("An error occurred"));
+      res.redirect(`/table/${table.id}`);
+      return;
+    }
+    const defs = standardFieldDefs(req);
+    const existingFields = await table.getFields();
+    const existingNames = new Set(existingFields.map((f) => f.name));
+    await db.withTransaction(async () => {
+      for (const def of defs) {
+        if (!form.values[def.name]) continue;
+        if (existingNames.has(def.name)) continue;
+        await Field.create({
+          table_id: table.id,
+          name: def.name,
+          label: def.label,
+          type: def.fieldType,
+          reftable_name: def.reftable_name,
+          required: false,
+          attributes: {},
+        });
+      }
+    });
+    await getState().refresh_tables();
     res.redirect(`/table/${table.id}`);
   })
 );
