@@ -878,7 +878,8 @@ function apply_calculated_fields(
 const apply_calculated_fields_stored = async (
   row: Row,
   fields: Array<Field>,
-  table: Table
+  table: Table,
+  user?: any
 ): Promise<Row> => {
   const state = require("../db/state").getState();
   let hasExprs = false;
@@ -966,7 +967,7 @@ const apply_calculated_fields_stored = async (
       const oldf = transform;
       transform = async (row) => {
         try {
-          const x = await f(row);
+          const x = await f(row, user);
           row[field.name] = x;
         } catch (e: any) {
           e.message = `Error in calculating "${field.name}": ${e.message}`;
