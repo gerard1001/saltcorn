@@ -848,6 +848,11 @@ router.get(
     let fieldCard;
     const primaryKeys = fields.filter((f) => f.primary_key);
     const nPrimaryKeys = primaryKeys.length;
+    const standardFieldNames = [
+      "name", "description", "created_at", "updated_at", "created_by", "updated_by",
+    ];
+    const fieldNameSet = new Set(fields.map((f) => f.name));
+    const hasAllStandardFields = standardFieldNames.every((n) => fieldNameSet.has(n));
 
     if (fields.length === 0) {
       fieldCard = [
@@ -866,6 +871,7 @@ router.get(
         !table.external &&
           !table.provider_name &&
           user_can_edit_tables &&
+          !hasAllStandardFields &&
           a(
             {
               class: "btn btn-outline-secondary ms-2",
@@ -960,6 +966,7 @@ router.get(
         !table.external &&
           !table.provider_name &&
           user_can_edit_tables &&
+          !hasAllStandardFields &&
           a(
             {
               class: "btn btn-outline-secondary ms-2 mt-2",
@@ -2722,12 +2729,17 @@ const standardFieldDefs = (req) => [
     label: req.__("Created at"),
     type: "Date",
     fieldType: "Date",
+    required: true,
+    attributes: { default_expression: "new Date()" },
   },
   {
     name: "updated_at",
     label: req.__("Updated at"),
     type: "Date",
     fieldType: "Date",
+    calculated: true,
+    stored: true,
+    expression: "new Date()",
   },
   {
     name: "created_by",
@@ -2735,6 +2747,7 @@ const standardFieldDefs = (req) => [
     type: "Key to user",
     fieldType: "Key",
     reftable_name: "users",
+    attributes: { default_expression: "user?.id" },
   },
   {
     name: "updated_by",
@@ -2742,11 +2755,14 @@ const standardFieldDefs = (req) => [
     type: "Key to user",
     fieldType: "Key",
     reftable_name: "users",
+    calculated: true,
+    stored: true,
+    expression: "user?.id ?? row?.updated_by",
   },
 ];
 
-const standardFieldForm = (table, req) => {
-  const defs = standardFieldDefs(req);
+const standardFieldForm = (table, req, existingNames = new Set()) => {
+  const defs = standardFieldDefs(req).filter((def) => !existingNames.has(def.name));
   return new Form({
     submitLabel: req.__("Create fields"),
     action: `/table/create-standard-fields/${table.id}`,
@@ -2771,8 +2787,10 @@ router.get(
       res.redirect(`/table`);
       return;
     }
+    const existingFields = await table.getFields();
+    const existingNames = new Set(existingFields.map((f) => f.name));
     res.set("Page-Title", req.__("Create standard fields"));
-    const form = standardFieldForm(table, req);
+    const form = standardFieldForm(table, req, existingNames);
     res.send(renderForm(form, req.csrfToken()));
   })
 );
@@ -2788,7 +2806,9 @@ router.post(
       res.redirect(`/table`);
       return;
     }
-    const form = standardFieldForm(table, req);
+    const existingFields = await table.getFields();
+    const existingNames = new Set(existingFields.map((f) => f.name));
+    const form = standardFieldForm(table, req, existingNames);
     form.validate(req.body || {});
     if (form.hasErrors) {
       req.flash("error", req.__("An error occurred"));
@@ -2796,8 +2816,6 @@ router.post(
       return;
     }
     const defs = standardFieldDefs(req);
-    const existingFields = await table.getFields();
-    const existingNames = new Set(existingFields.map((f) => f.name));
     await db.withTransaction(async () => {
       for (const def of defs) {
         if (!form.values[def.name]) continue;
@@ -2808,8 +2826,11 @@ router.post(
           label: def.label,
           type: def.fieldType,
           reftable_name: def.reftable_name,
-          required: false,
-          attributes: {},
+          required: def.required || false,
+          calculated: def.calculated || false,
+          stored: def.stored || false,
+          expression: def.expression,
+          attributes: def.attributes || {},
         });
       }
     });
