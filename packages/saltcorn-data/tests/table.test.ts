@@ -3259,3 +3259,124 @@ describe("Table recursive query", () => {
       expect(2 + 2).toBe(4);
     });
 });
+
+describe("Field default_expression", () => {
+  it("auto-populates a Date field on insert when not provided", async () => {
+    const table = await Table.create("DefaultExprDateTable");
+    await Field.create({
+      table,
+      name: "created_at",
+      label: "Created at",
+      type: "Date",
+      attributes: { default_expression: "new Date()" },
+    });
+    const id = await table.insertRow({});
+    const rows = await table.getRows({ id });
+    expect(rows.length).toBe(1);
+    expect(rows[0].created_at).toBeTruthy();
+    const diff = Math.abs(new Date(rows[0].created_at).getTime() - Date.now());
+    expect(diff).toBeLessThan(5000);
+  });
+
+  it("does not override a value explicitly provided by the caller", async () => {
+    const table = Table.findOne({ name: "DefaultExprDateTable" });
+    assertIsSet(table);
+    const fixed = new Date("2020-01-01T00:00:00Z");
+    const id = await table.insertRow({ created_at: fixed });
+    const rows = await table.getRows({ id });
+    expect(rows.length).toBe(1);
+    const diff = Math.abs(
+      new Date(rows[0].created_at).getTime() - fixed.getTime()
+    );
+    expect(diff).toBeLessThan(2000);
+  });
+
+  it("auto-populates a Key field with user.id when user is provided", async () => {
+    const table = await Table.create("DefaultExprKeyTable");
+    await Field.create({
+      table,
+      name: "created_by",
+      label: "Created by",
+      type: "Key",
+      reftable_name: "users",
+      attributes: { default_expression: "user?.id ?? null" },
+    });
+    const user = { id: 1, role_id: 1 };
+    const id = await table.insertRow({}, user);
+    const rows = await table.getRows({ id });
+    expect(rows.length).toBe(1);
+    expect(rows[0].created_by).toBe(1);
+  });
+
+  it("sets Key field to null when no user is provided", async () => {
+    const table = Table.findOne({ name: "DefaultExprKeyTable" });
+    assertIsSet(table);
+    const id = await table.insertRow({});
+    const rows = await table.getRows({ id });
+    expect(rows.length).toBe(1);
+    expect(rows[0].created_by).toBeNull();
+  });
+});
+
+describe("Calculated stored field with user context", () => {
+  it("evaluates expression with user on insert", async () => {
+    const table = await Table.create("CalcStoredUserTable");
+    await Field.create({
+      table,
+      name: "updated_by",
+      label: "Updated by",
+      type: "Key",
+      reftable_name: "users",
+      calculated: true,
+      stored: true,
+      expression: "user?.id ?? null",
+    });
+    const user = { id: 1, role_id: 1 };
+    const id = await table.insertRow({}, user);
+    const rows = await table.getRows({ id });
+    expect(rows.length).toBe(1);
+    expect(rows[0].updated_by).toBe(1);
+  });
+
+  it("evaluates expression with user on update", async () => {
+    const table = Table.findOne({ name: "CalcStoredUserTable" });
+    assertIsSet(table);
+    const id = await table.insertRow({}, { id: 1, role_id: 1 });
+    await table.updateRow({}, id, { id: 2, role_id: 1 });
+    const rows = await table.getRows({ id });
+    expect(rows.length).toBe(1);
+    expect(rows[0].updated_by).toBe(2);
+  });
+
+  it("stores null when no user is provided", async () => {
+    const table = Table.findOne({ name: "CalcStoredUserTable" });
+    assertIsSet(table);
+    const id = await table.insertRow({});
+    const rows = await table.getRows({ id });
+    expect(rows.length).toBe(1);
+    expect(rows[0].updated_by).toBeNull();
+  });
+
+  it("evaluates a Date expression on every insert and update", async () => {
+    const table = await Table.create("CalcStoredDateTable");
+    await Field.create({
+      table,
+      name: "updated_at",
+      label: "Updated at",
+      type: "Date",
+      calculated: true,
+      stored: true,
+      expression: "new Date()",
+    });
+    const id = await table.insertRow({});
+    const rows1 = await table.getRows({ id });
+    const t1 = new Date(rows1[0].updated_at).getTime();
+    expect(Math.abs(t1 - Date.now())).toBeLessThan(5000);
+
+    await new Promise((r) => setTimeout(r, 20));
+    await table.updateRow({}, id);
+    const rows2 = await table.getRows({ id });
+    const t2 = new Date(rows2[0].updated_at).getTime();
+    expect(t2).toBeGreaterThanOrEqual(t1);
+  });
+});
