@@ -751,7 +751,107 @@ const decodeProvisioningProfile = async (provisioningProfile: string) => {
   }
 };
 
+const is_relative_url = (url: string): boolean => {
+  if (typeof url !== "string") return false;
+
+  // Normalise backslashes to forward slashes (WHATWG treats \ as / in special schemes)
+  const normalised = url.replace(/\\/g, "/");
+
+  // Reject protocol-relative URLs (//example.com)
+  if (normalised.trimStart().startsWith("//")) return false;
+
+  // Reject any scheme: URIs (e.g. http:, javascript:, data:, vbscript:)
+  // A scheme is a letter followed by letters/digits/+/-/. then a colon (RFC 3986 §3.1)
+  if (/^[a-zA-Z][a-zA-Z0-9+\-.]*:/u.test(normalised.trimStart())) return false;
+
+  return true;
+};
+
+const normalize_relative_url = (url: string): string | null => {
+  if (typeof url !== "string") return null;
+
+  const normalised = url.replace(/\\/g, "/").trimStart();
+
+  // Reject protocol-relative URLs
+  if (normalised.startsWith("//")) return null;
+
+  // Reject any scheme (RFC 3986 §3.1)
+  if (/^[a-zA-Z][a-zA-Z0-9+\-.]*:/.test(normalised)) return null;
+
+  return normalised;
+};
+
+function toSafeRelativeUrl(input: string): string {
+  function sanitizeRelative(rel: string): string {
+    // Split off query string and hash before processing the path
+    const hashIndex = rel.indexOf("#");
+    const hash = hashIndex !== -1 ? rel.slice(hashIndex) : "";
+    const withoutHash = hashIndex !== -1 ? rel.slice(0, hashIndex) : rel;
+
+    const queryIndex = withoutHash.indexOf("?");
+    const query = queryIndex !== -1 ? withoutHash.slice(queryIndex) : "";
+    const path =
+      queryIndex !== -1 ? withoutHash.slice(0, queryIndex) : withoutHash;
+
+    // Resolve path traversal by using URL with a dummy base
+    // This handles /../, /./, //, unicode tricks, encoded dots, etc.
+    const base = "https://x";
+    let resolved;
+    try {
+      resolved = new URL(path, base).pathname;
+    } catch {
+      return "/";
+    }
+
+    // URL constructor percent-encodes the path — decode for normal use,
+    // then re-encode only genuinely dangerous characters
+    const decoded = decodeURIComponent(resolved);
+
+    // Final guard: if somehow we got back something path-traversal-y, abort
+    if (decoded.includes("..")) return "/";
+
+    return decoded + query + hash;
+  }
+
+  if (typeof input !== "string") return "/";
+
+  const trimmed = input.trim();
+
+  // Try parsing as absolute URL first
+  try {
+    const url = new URL(trimmed);
+
+    // Only allow http: and https: schemes
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return "/";
+    }
+
+    // Extract only the path, search, and hash — drop origin entirely
+    return sanitizeRelative(url.pathname + url.search + url.hash);
+  } catch {
+    // Not an absolute URL — treat as relative, but sanitize it
+  }
+
+  // Reject protocol-relative URLs (//evil.com/path)
+  if (trimmed.startsWith("//")) return "/";
+
+  return sanitizeRelative(trimmed);
+}
+
+/**
+ * Sanitizes a relative URL string.
+ * - Ensures it starts with /
+ * - Resolves away path traversal sequences (../../etc)
+ * - Preserves query string and hash
+ *
+ * @param {string} rel
+ * @returns {string}
+ */
+
 export = {
+  is_relative_url,
+  normalize_relative_url,
+  toSafeRelativeUrl,
   dataModulePath,
   allReturnDirectives,
   secondaryReturnDirectives,
