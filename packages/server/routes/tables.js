@@ -849,10 +849,17 @@ router.get(
     const primaryKeys = fields.filter((f) => f.primary_key);
     const nPrimaryKeys = primaryKeys.length;
     const standardFieldNames = [
-      "name", "description", "created_at", "updated_at", "created_by", "updated_by",
+      "name",
+      "description",
+      "created_at",
+      "updated_at",
+      "created_by",
+      "updated_by",
     ];
     const fieldNameSet = new Set(fields.map((f) => f.name));
-    const hasAllStandardFields = standardFieldNames.every((n) => fieldNameSet.has(n));
+    const hasAllStandardFields = standardFieldNames.every((n) =>
+      fieldNameSet.has(n)
+    );
 
     if (fields.length === 0) {
       fieldCard = [
@@ -2747,7 +2754,7 @@ const standardFieldDefs = (req) => [
     type: "Key to user",
     fieldType: "Key",
     reftable_name: "users",
-    attributes: { default_expression: "user?.id" },
+    attributes: { default_expression: "user?.id", summary_field: "email" },
   },
   {
     name: "updated_by",
@@ -2758,11 +2765,14 @@ const standardFieldDefs = (req) => [
     calculated: true,
     stored: true,
     expression: "user?.id ?? row?.updated_by",
+    attributes: { summary_field: "email" },
   },
 ];
 
 const standardFieldForm = (table, req, existingNames = new Set()) => {
-  const defs = standardFieldDefs(req).filter((def) => !existingNames.has(def.name));
+  const defs = standardFieldDefs(req).filter(
+    (def) => !existingNames.has(def.name)
+  );
   return new Form({
     submitLabel: req.__("Create fields"),
     action: `/table/create-standard-fields/${table.id}`,

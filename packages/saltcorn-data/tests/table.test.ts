@@ -3303,7 +3303,7 @@ describe("Field default_expression", () => {
       label: "Created by",
       type: "Key",
       reftable_name: "users",
-      attributes: { default_expression: "user?.id ?? null" },
+      attributes: { default_expression: "user?.id ?? null", summary_field: "email" },
     });
     const user = { id: 1, role_id: 1 };
     const id = await table.insertRow({}, user);
@@ -3337,6 +3337,7 @@ describe("Calculated stored field with user context", () => {
       calculated: true,
       stored: true,
       expression: "user?.id ?? null",
+      attributes: { summary_field: "email" },
     });
 
     dateTable = await Table.create("CalcStoredDateTable");
