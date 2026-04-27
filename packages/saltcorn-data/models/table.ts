@@ -1812,7 +1812,8 @@ class Table implements AbstractTable {
       let calced = await apply_calculated_fields_stored(
         need_to_update ? updated || {} : { ...existing, ...v_in },
         this.fields,
-        this
+        this,
+        use_user
       );
 
       for (const f of fields)
@@ -2434,7 +2435,8 @@ class Table implements AbstractTable {
       let calced = await apply_calculated_fields_stored(
         existing[0],
         fields,
-        this
+        this,
+        use_user
       );
       v = { ...v_in };
 
@@ -2446,7 +2448,7 @@ class Table implements AbstractTable {
       );
       await db.update(this.name, v, id, { pk_name, ...sqliteJsonCols });
     } else {
-      v = await apply_calculated_fields_stored(v_in, fields, this);
+      v = await apply_calculated_fields_stored(v_in, fields, this, use_user);
       this.prepare_row_for_writing(v);
       state.log(6, `Inserting ${this.name} row: ${JSON.stringify(v)}`);
       id = await db.insert(this.name, v, {

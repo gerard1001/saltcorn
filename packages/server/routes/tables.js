@@ -8,6 +8,7 @@ const Router = require("express-promise-router");
 
 const db = require("@saltcorn/data/db");
 const Table = require("@saltcorn/data/models/table");
+const Field = require("@saltcorn/data/models/field");
 const File = require("@saltcorn/data/models/file");
 const View = require("@saltcorn/data/models/view");
 const User = require("@saltcorn/data/models/user");
@@ -847,6 +848,18 @@ router.get(
     let fieldCard;
     const primaryKeys = fields.filter((f) => f.primary_key);
     const nPrimaryKeys = primaryKeys.length;
+    const standardFieldNames = [
+      "name",
+      "description",
+      "created_at",
+      "updated_at",
+      "created_by",
+      "updated_by",
+    ];
+    const fieldNameSet = new Set(fields.map((f) => f.name));
+    const hasAllStandardFields = standardFieldNames.every((n) =>
+      fieldNameSet.has(n)
+    );
 
     if (fields.length === 0) {
       fieldCard = [
@@ -861,6 +874,17 @@ router.get(
               class: "btn btn-primary add-field",
             },
             req.__("Add field to table")
+          ),
+        !table.external &&
+          !table.provider_name &&
+          user_can_edit_tables &&
+          !hasAllStandardFields &&
+          a(
+            {
+              class: "btn btn-outline-secondary ms-2",
+              href: `javascript:ajax_modal('/table/create-standard-fields/${table.id}')`,
+            },
+            req.__("Create standard fields")
           ),
       ];
     } else {
@@ -945,6 +969,17 @@ router.get(
               class: "btn btn-primary add-field mt-2",
             },
             req.__("Add field")
+          ),
+        !table.external &&
+          !table.provider_name &&
+          user_can_edit_tables &&
+          !hasAllStandardFields &&
+          a(
+            {
+              class: "btn btn-outline-secondary ms-2 mt-2",
+              href: `javascript:ajax_modal('/table/create-standard-fields/${table.id}')`,
+            },
+            req.__("Create standard fields")
           ),
       ];
     }
@@ -2679,6 +2714,137 @@ router.post(
       }
     });
     await getState().refresh_views();
+    res.redirect(`/table/${table.id}`);
+  })
+);
+
+const standardFieldDefs = (req) => [
+  {
+    name: "name",
+    label: req.__("Name"),
+    type: "String",
+    fieldType: "String",
+  },
+  {
+    name: "description",
+    label: req.__("Description"),
+    type: "String",
+    fieldType: "String",
+  },
+  {
+    name: "created_at",
+    label: req.__("Created at"),
+    type: "Date",
+    fieldType: "Date",
+    required: true,
+    attributes: { default_expression: "new Date()" },
+  },
+  {
+    name: "updated_at",
+    label: req.__("Updated at"),
+    type: "Date",
+    fieldType: "Date",
+    calculated: true,
+    stored: true,
+    expression: "new Date()",
+  },
+  {
+    name: "created_by",
+    label: req.__("Created by"),
+    type: "Key to user",
+    fieldType: "Key",
+    reftable_name: "users",
+    attributes: { default_expression: "user?.id", summary_field: "email" },
+  },
+  {
+    name: "updated_by",
+    label: req.__("Updated by"),
+    type: "Key to user",
+    fieldType: "Key",
+    reftable_name: "users",
+    calculated: true,
+    stored: true,
+    expression: "user?.id ?? row?.updated_by",
+    attributes: { summary_field: "email" },
+  },
+];
+
+const standardFieldForm = (table, req, existingNames = new Set()) => {
+  const defs = standardFieldDefs(req).filter(
+    (def) => !existingNames.has(def.name)
+  );
+  return new Form({
+    submitLabel: req.__("Create fields"),
+    action: `/table/create-standard-fields/${table.id}`,
+    formStyle: "vert",
+    fields: defs.map((def) => ({
+      type: "Bool",
+      label: `${def.label} (${def.type})`,
+      name: def.name,
+      default: true,
+    })),
+  });
+};
+
+router.get(
+  "/create-standard-fields/:id",
+  isAdminOrHasConfigMinRole("min_role_edit_tables"),
+  error_catcher(async (req, res) => {
+    const { id } = req.params;
+    const table = Table.findOne({ id });
+    if (!table) {
+      req.flash("error", `Table not found`);
+      res.redirect(`/table`);
+      return;
+    }
+    const existingFields = await table.getFields();
+    const existingNames = new Set(existingFields.map((f) => f.name));
+    res.set("Page-Title", req.__("Create standard fields"));
+    const form = standardFieldForm(table, req, existingNames);
+    res.send(renderForm(form, req.csrfToken()));
+  })
+);
+
+router.post(
+  "/create-standard-fields/:id",
+  isAdminOrHasConfigMinRole("min_role_edit_tables"),
+  error_catcher(async (req, res) => {
+    const { id } = req.params;
+    const table = Table.findOne({ id });
+    if (!table) {
+      req.flash("error", `Table not found`);
+      res.redirect(`/table`);
+      return;
+    }
+    const existingFields = await table.getFields();
+    const existingNames = new Set(existingFields.map((f) => f.name));
+    const form = standardFieldForm(table, req, existingNames);
+    form.validate(req.body || {});
+    if (form.hasErrors) {
+      req.flash("error", req.__("An error occurred"));
+      res.redirect(`/table/${table.id}`);
+      return;
+    }
+    const defs = standardFieldDefs(req);
+    await db.withTransaction(async () => {
+      for (const def of defs) {
+        if (!form.values[def.name]) continue;
+        if (existingNames.has(def.name)) continue;
+        await Field.create({
+          table_id: table.id,
+          name: def.name,
+          label: def.label,
+          type: def.fieldType,
+          reftable_name: def.reftable_name,
+          required: def.required || false,
+          calculated: def.calculated || false,
+          stored: def.stored || false,
+          expression: def.expression,
+          attributes: def.attributes || {},
+        });
+      }
+    });
+    await getState().refresh_tables();
     res.redirect(`/table/${table.id}`);
   })
 );

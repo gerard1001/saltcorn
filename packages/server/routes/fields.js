@@ -1106,7 +1106,7 @@ router.post(
     try {
       if (stored) {
         const f = get_async_expression_function(formula, fields);
-        result = await f(rows[0]);
+        result = await f(rows[0], req.user);
       } else {
         const f = get_expression_function(formula, fields);
         result = f(rows[0]);
