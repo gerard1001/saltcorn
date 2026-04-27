@@ -23,8 +23,12 @@ import {
 import expressionModule from "../models/expression";
 import { Row, sqlBinOp, sqlFun, Where } from "@saltcorn/db-common/internal";
 import { ResultMessage } from "@saltcorn/types/common_types";
-const { freeVariables, jsexprToWhere, add_free_variables_to_aggregations } =
-  expressionModule;
+const {
+  freeVariables,
+  jsexprToWhere,
+  add_free_variables_to_aggregations,
+  apply_calculated_fields_stored,
+} = expressionModule;
 import { runWithTenant } from "@saltcorn/db-common/multi-tenant";
 
 afterAll(db.close);
@@ -3319,10 +3323,13 @@ describe("Field default_expression", () => {
 });
 
 describe("Calculated stored field with user context", () => {
-  it("evaluates expression with user on insert", async () => {
-    const table = await Table.create("CalcStoredUserTable");
+  let userTable: any;
+  let dateTable: any;
+
+  beforeAll(async () => {
+    userTable = await Table.create("CalcStoredUserTable");
     await Field.create({
-      table,
+      table: userTable,
       name: "updated_by",
       label: "Updated by",
       type: "Key",
@@ -3331,36 +3338,10 @@ describe("Calculated stored field with user context", () => {
       stored: true,
       expression: "user?.id ?? null",
     });
-    const user = { id: 1, role_id: 1 };
-    const id = await table.insertRow({}, user);
-    const rows = await table.getRows({ id });
-    expect(rows.length).toBe(1);
-    expect(rows[0].updated_by).toBe(1);
-  });
 
-  it("evaluates expression with user on update", async () => {
-    const table = Table.findOne({ name: "CalcStoredUserTable" });
-    assertIsSet(table);
-    const id = await table.insertRow({}, { id: 1, role_id: 1 });
-    await table.updateRow({}, id, { id: 2, role_id: 1 });
-    const rows = await table.getRows({ id });
-    expect(rows.length).toBe(1);
-    expect(rows[0].updated_by).toBe(2);
-  });
-
-  it("stores null when no user is provided", async () => {
-    const table = Table.findOne({ name: "CalcStoredUserTable" });
-    assertIsSet(table);
-    const id = await table.insertRow({});
-    const rows = await table.getRows({ id });
-    expect(rows.length).toBe(1);
-    expect(rows[0].updated_by).toBeNull();
-  });
-
-  it("evaluates a Date expression on every insert and update", async () => {
-    const table = await Table.create("CalcStoredDateTable");
+    dateTable = await Table.create("CalcStoredDateTable");
     await Field.create({
-      table,
+      table: dateTable,
       name: "updated_at",
       label: "Updated at",
       type: "Date",
@@ -3368,15 +3349,113 @@ describe("Calculated stored field with user context", () => {
       stored: true,
       expression: "new Date()",
     });
-    const id = await table.insertRow({});
-    const rows1 = await table.getRows({ id });
+  });
+
+  it("evaluates expression with user on insert", async () => {
+    const id = await userTable.insertRow({}, { id: 1, role_id: 1 });
+    const rows = await userTable.getRows({ id });
+    expect(rows.length).toBe(1);
+    expect(rows[0].updated_by).toBe(1);
+  });
+
+  it("evaluates expression with updated user on update", async () => {
+    const id = await userTable.insertRow({}, { id: 1, role_id: 1 });
+    await userTable.updateRow({}, id, { id: 2, role_id: 1 });
+    const rows = await userTable.getRows({ id });
+    expect(rows.length).toBe(1);
+    expect(rows[0].updated_by).toBe(2);
+  });
+
+  it("stores null when no user is provided", async () => {
+    const id = await userTable.insertRow({});
+    const rows = await userTable.getRows({ id });
+    expect(rows.length).toBe(1);
+    expect(rows[0].updated_by).toBeNull();
+  });
+
+  it("evaluates a Date expression on every insert and update", async () => {
+    const id = await dateTable.insertRow({});
+    const rows1 = await dateTable.getRows({ id });
     const t1 = new Date(rows1[0].updated_at).getTime();
     expect(Math.abs(t1 - Date.now())).toBeLessThan(5000);
 
     await new Promise((r) => setTimeout(r, 20));
-    await table.updateRow({}, id);
-    const rows2 = await table.getRows({ id });
+    await dateTable.updateRow({}, id);
+    const rows2 = await dateTable.getRows({ id });
     const t2 = new Date(rows2[0].updated_at).getTime();
     expect(t2).toBeGreaterThanOrEqual(t1);
+  });
+});
+
+describe("apply_calculated_fields_stored", () => {
+  let table: any;
+  let fields: any[];
+
+  beforeAll(async () => {
+    table = await Table.create("ApplyCalcStoredDirectTable");
+    await Field.create({
+      table,
+      name: "score",
+      label: "Score",
+      type: "Integer",
+    });
+    await Field.create({
+      table,
+      name: "stamp_user",
+      label: "Stamp user",
+      type: "Key",
+      reftable_name: "users",
+      calculated: true,
+      stored: true,
+      expression: "user?.id ?? null",
+    });
+    await Field.create({
+      table,
+      name: "doubled",
+      label: "Doubled",
+      type: "Integer",
+      calculated: true,
+      stored: true,
+      expression: "score * 2",
+    });
+    await table.getFields();
+    fields = table.fields;
+  });
+
+  it("sets user-dependent field when user is provided", async () => {
+    const row = { score: 5 };
+    const result = await apply_calculated_fields_stored(row, fields, table, {
+      id: 3,
+      role_id: 1,
+    });
+    expect(result.stamp_user).toBe(3);
+  });
+
+  it("sets user-dependent field to null when no user is provided", async () => {
+    const row = { score: 5 };
+    const result = await apply_calculated_fields_stored(row, fields, table);
+    expect(result.stamp_user).toBeNull();
+  });
+
+  it("evaluates non-user expression correctly", async () => {
+    const row = { score: 7 };
+    const result = await apply_calculated_fields_stored(row, fields, table);
+    expect(result.doubled).toBe(14);
+  });
+
+  it("evaluates multiple calculated fields in the same call", async () => {
+    const row = { score: 4 };
+    const result = await apply_calculated_fields_stored(row, fields, table, {
+      id: 2,
+      role_id: 1,
+    });
+    expect(result.stamp_user).toBe(2);
+    expect(result.doubled).toBe(8);
+  });
+
+  it("does not modify non-calculated fields", async () => {
+    const row = { score: 9 };
+    const result = await apply_calculated_fields_stored(row, fields, table);
+    expect(result.score).toBe(9);
   });
 });
