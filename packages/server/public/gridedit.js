@@ -156,6 +156,27 @@ function add_tabulator_row() {
   window.tabulator_table.addRow({}, true);
 }
 
+function reload_tabulator_data(table, rowComponent) {
+  const opts = (table && table.options) || {};
+  if (!(opts.pagination && opts.paginationMode === "remote")) {
+    rowComponent.delete();
+    return;
+  }
+  const page = table.getPage();
+  const dataLoader = opts.dataLoader;
+  opts.dataLoader = false;
+  table
+    .setPage(page)
+    .then(() => {
+      if (page > 1 && table.getDataCount() === 0)
+        return table.setPage(page - 1);
+    })
+    .catch(() => {})
+    .finally(() => {
+      opts.dataLoader = dataLoader;
+    });
+}
+
 function delete_tabulator_row(e, cell) {
   const def = cell.getColumn().getDefinition();
   if (def && def.formatterParams && def.formatterParams.confirm) {
@@ -164,13 +185,15 @@ function delete_tabulator_row(e, cell) {
   const tableName =
     def?.formatterParams?.tableName || window.tabulator_table_name;
 
-  const row = cell.getRow().getData();
+  const rowComponent = cell.getRow();
+  const row = rowComponent.getData();
 
   const pk_name = window.tabulator_table_primary_key || "id";
   if (!row[pk_name]) {
-    cell.getRow().delete();
+    rowComponent.delete();
     return;
   }
+  const table = cell.getTable();
   $.ajax({
     type: "DELETE",
     url: `/api/${tableName}/${encodeURIComponent(row[pk_name])}`,
@@ -178,7 +201,7 @@ function delete_tabulator_row(e, cell) {
     headers: {
       "CSRF-Token": _sc_globalCsrf,
     },
-    success: () => cell.getRow().delete(),
+    success: () => reload_tabulator_data(table, rowComponent),
     error: tabulator_error_handler,
   });
 }
