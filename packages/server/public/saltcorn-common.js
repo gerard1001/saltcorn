@@ -1498,11 +1498,20 @@ function initialize_page() {
   $("textarea.to-code").each(function () {
     codes.push(this);
   });
+  // placeholder so the editor area is not blank while monaco loads
+  codes.forEach((el) => {
+    if ($(el).hasClass("monaco-enabled") || $(el).next(".monaco-loading").length)
+      return;
+    $(el).after(
+      `<div class="monaco-loading form-control"><span class="spinner-border spinner-border-sm me-2" role="status"></span>Loading editor…</div>`
+    );
+  });
   if (codes.length > 0)
     enable_monaco(codes, (ts_ds) => {
       codes.forEach((el) => {
         if ($(el).hasClass("monaco-enabled")) return;
         $(el).addClass("monaco-enabled");
+        $(el).next(".monaco-loading").remove();
         let value = $(el).val();
         const isExpression = el.getAttribute("is-expression") === "yes";
         const virtualPrefix = "const prefix: Row =";

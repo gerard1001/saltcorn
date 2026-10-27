@@ -79,6 +79,14 @@ div.monaco-input-compact > div.monaco-input-editor {
 textarea.to-code {
   display: none;
 }
+div.monaco-loading {
+  display: flex;
+  align-items: center;
+  padding-top: 1.5rem;
+  padding-bottom: 1.5rem;
+  color: var(--bs-secondary-color, #6c757d);
+  font-size: 0.875rem;
+}
 i.sortdir {
   margin-left: 2px;
 }
