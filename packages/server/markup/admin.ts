@@ -480,6 +480,7 @@ const send_admin_page = (
       { text: "Backup", href: "/admin/backup" },
       { text: "Email", href: "/admin/email" },
       { text: "System", href: "/admin/system" },
+      { text: "Updates", href: "/admin/updates" },
       { text: "Mobile app", href: "/admin/build-mobile-app" },
       { text: "Development", href: "/admin/dev" },
       { text: "Notifications", href: "/admin/notifications" },

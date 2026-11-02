@@ -516,6 +516,18 @@ describe("session-tenant isolation", () => {
       expect(res.status).toBe(200);
       expect(res.body.secret).toBe(PLUGIN_SECRET);
     });
+
+    it("shows the Updates page to a tenant admin without the Saltcorn row", async () => {
+      const loginCookie = await getTenantAdminLoginCookie();
+      const app = await getApp({ disableCsrf: true });
+      const res = await request(app)
+        .get("/admin/updates")
+        .set("Cookie", loginCookie)
+        .set("Host", `${TENANT}.example.com`);
+      expect(res.status).toBe(200);
+      expect(res.text).toContain("Check for updates");
+      expect(res.text).not.toContain("<td>Saltcorn</td>");
+    });
   } else {
     it("does not support tenants on SQLite", () => {
       expect(db.isSQLite).toBe(true);

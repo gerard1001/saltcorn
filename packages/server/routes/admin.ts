@@ -56,6 +56,7 @@ import {
   h4,
   table,
   tbody,
+  thead,
   td,
   th,
   tr,
@@ -104,6 +105,7 @@ import {
 const packagejson = require("../../package.json");
 import Form from "@saltcorn/data/models/form";
 import { get_latest_npm_version } from "@saltcorn/data/models/config";
+import { latest_supported_version } from "./plugins.js";
 import { getMailTransport, getOauth2Client } from "@saltcorn/data/models/email";
 import {
   getBaseDomain,
@@ -2052,6 +2054,194 @@ router.post(
     res.redirect(`/admin/system`);
   })
 );
+/**
+ * Updates overview: Saltcorn (root only) and every installed module,
+ * installed vs latest supported version, with per-row and bulk upgrade.
+ * Each tenant sees and upgrades only its own modules.
+ */
+router.get(
+  "/updates",
+  isAdmin,
+  error_catcher(async (req: Req, res: Res) => {
+    const isRoot = db.getTenantSchema() === db.connectObj.default_schema;
+    const git_commit = getGitRevision();
+    // only offer an upgrade when latest is actually newer, so a prerelease
+    // build is not offered a "downgrade" to the last stable release
+    const isNewer = (latest: string | null, installed: string) =>
+      !!latest &&
+      (semver.valid(latest) && semver.valid(installed)
+        ? semver.gt(latest, installed)
+        : latest !== installed);
+
+    let saltcornRow = "";
+    if (isRoot) {
+      const latest = await get_latest_npm_version("@saltcorn/cli", 10000);
+      const can_update =
+        isNewer(latest, packagejson.version) &&
+        !process.env.SALTCORN_DISABLE_UPGRADE &&
+        !git_commit;
+      saltcornRow = tr(
+        td("Saltcorn"),
+        td(packagejson.version),
+        td(latest || ""),
+        td(
+          can_update
+            ? post_btn("/admin/upgrade", req.__("Upgrade"), req.csrfToken(), {
+                btnClass: "btn-primary btn-sm",
+                formClass: "d-inline",
+              })
+            : "—"
+        )
+      );
+    }
+
+    const plugins = (await Plugin.find({})).filter(
+      (p) => !Plugin.is_fixed_plugin(p.location)
+    );
+    const rows = await Promise.all(
+      plugins.map(async (plugin) => {
+        try {
+          const mod = await Plugin.requirePlugin(plugin);
+          const installed = String(mod?.version || plugin.version || "");
+          // longer than the info page's 1s: lookups run in parallel, so the
+          // page waits for the slowest one, and a timed-out lookup would
+          // drop that module from the list until the next load
+          const latest = await latest_supported_version(plugin, 10000);
+          return {
+            plugin,
+            installed,
+            latest,
+            can_update: isNewer(latest, installed),
+          };
+        } catch (e: any) {
+          return {
+            plugin,
+            installed: plugin.version || "",
+            latest: null,
+            can_update: false,
+            error: e?.message,
+          };
+        }
+      })
+    );
+    rows.sort((a, b) => a.plugin.name.localeCompare(b.plugin.name));
+    const outdated = rows.filter((r) => r.can_update);
+
+    const stored = getState()!.getConfig("latest_npm_version", {}) || {};
+    const checkTimes = Object.values(stored)
+      .map((v: any) => v?.time && new Date(v.time).getTime())
+      .filter((t: any) => t && !isNaN(t)) as number[];
+    const lastChecked = checkTimes.length
+      ? moment(Math.min(...checkTimes)).fromNow()
+      : req.__("never");
+
+    const upgradeAllMsg =
+      (isRoot
+        ? req.__(
+            "Upgrade modules on this instance and on all tenants. Modules out of date here:"
+          )
+        : req.__("Upgrade these modules:")) +
+      "\n\n" +
+      outdated
+        .map((r) => `${r.plugin.name}: ${r.installed} → ${r.latest}`)
+        .join("\n");
+
+    send_admin_page({
+      res,
+      req,
+      active_sub: "Updates",
+      contents: {
+        type: "card",
+        title: req.__("Updates"),
+        contents: div(
+          div(
+            { class: "mb-3" },
+            span(
+              { class: "me-2" },
+              req.__("Last checked: %s", text(lastChecked))
+            ),
+            post_btn(
+              "/admin/updates/check",
+              req.__("Check for updates"),
+              req.csrfToken(),
+              { btnClass: "btn-primary btn-sm", formClass: "d-inline" }
+            ),
+            outdated.length
+              ? a(
+                  {
+                    href: "/plugins/upgrade?on_done_redirect=admin/updates",
+                    class: "btn btn-outline-primary btn-sm ms-2",
+                    onclick: `if(confirm(${JSON.stringify(upgradeAllMsg)})){notifyAlert(${JSON.stringify(req.__("Upgrading modules..."))}, true);return true}else return false`,
+                  },
+                  req.__("Upgrade all modules (%s)", outdated.length)
+                )
+              : ""
+          ),
+          table(
+            { class: "table table-sm" },
+            thead(
+              tr(
+                th(req.__("Name")),
+                th(req.__("Installed")),
+                th(req.__("Latest")),
+                th("")
+              )
+            ),
+            tbody(
+              saltcornRow,
+              rows.map((r) =>
+                tr(
+                  td(
+                    a(
+                      {
+                        href: `/plugins/info/${encodeURIComponent(r.plugin.name)}`,
+                      },
+                      text(r.plugin.name)
+                    )
+                  ),
+                  td(text(r.installed)),
+                  td(
+                    r.error
+                      ? span({ class: "text-danger" }, text(r.error))
+                      : text(r.latest || "")
+                  ),
+                  td(
+                    r.can_update
+                      ? a(
+                          {
+                            href: `/plugins/upgrade-plugin/${encodeURIComponent(
+                              r.plugin.name
+                            )}?on_done_redirect=admin/updates`,
+                            class: "btn btn-primary btn-sm",
+                            onclick: `notifyAlert(${JSON.stringify(req.__("Upgrading modules..."))}, true)`,
+                          },
+                          req.__("Upgrade")
+                        )
+                      : "—"
+                  )
+                )
+              )
+            )
+          )
+        ),
+      },
+    });
+  })
+);
+
+/**
+ * Clear the cached latest-version lookups and reload the Updates page
+ */
+router.post(
+  "/updates/check",
+  isAdmin,
+  error_catcher(async (req: Req, res: Res) => {
+    await getState()!.deleteConfig("latest_npm_version");
+    req.flash("success", req.__(`Versions refreshed`));
+    res.redirect(`/admin/updates`);
+  })
+);
+
 /**
  * Do Manual Backup
  * @name post/backup

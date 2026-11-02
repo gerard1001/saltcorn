@@ -92,6 +92,35 @@ const getOnDoneRedirect = (req: Req, fallback = "/plugins") => {
 };
 
 /**
+ * Latest published version of an npm module that this Saltcorn version
+ * supports, or null for modules that are not installed from npm.
+ * Uses the cached npm and engine lookups where they are fresh.
+ */
+const latest_supported_version = async (
+  plugin: Plugin,
+  timeout_ms = 1000
+): Promise<string | null> => {
+  if (plugin.source !== "npm") return null;
+  let latest: string | null = await get_latest_npm_version(
+    plugin.location,
+    timeout_ms
+  );
+  let engineInfos = await Plugin.getEngineInfos(plugin); // with cache
+  let forceFetch = true;
+  if (latest && !engineInfos[latest]) {
+    engineInfos = await Plugin.getEngineInfos(plugin, forceFetch);
+    forceFetch = false;
+  }
+  if (latest && !isVersionSupported(latest, engineInfos)) {
+    latest = supportedVersion(
+      latest,
+      await Plugin.getEngineInfos(plugin, forceFetch)
+    );
+  }
+  return latest || null;
+};
+
+/**
  * @type {object}
  * @const
  * @namespace pluginsRouter
@@ -1361,23 +1390,7 @@ router.get(
     const store_items = await get_store_items(req);
     const store_item = store_items.find((item: any) => item.name === name)!;
     const update_permitted = plugin_db.source === "npm";
-
-    let latest = update_permitted
-      ? await get_latest_npm_version(plugin_db.location, 1000)
-      : null;
-    let isNpm = plugin_db.source === "npm";
-    let engineInfos = await Plugin.getEngineInfos(plugin_db); // with cache
-    let forceFetch = true;
-    if (latest && !engineInfos[latest] && isNpm) {
-      engineInfos = await Plugin.getEngineInfos(plugin_db, forceFetch);
-      forceFetch = false;
-    }
-    if (latest && !isVersionSupported(latest, engineInfos)) {
-      latest = supportedVersion(
-        latest,
-        await Plugin.getEngineInfos(plugin_db, forceFetch)
-      );
-    }
+    const latest = await latest_supported_version(plugin_db);
     const can_update = update_permitted && latest && mod.version !== latest;
     const can_select_version = update_permitted && plugin_db.source === "npm";
     let pkgjson: any;
@@ -1554,7 +1567,7 @@ router.get(
         tenant: db.getTenantSchema(),
       });
     }
-    res.redirect(`/plugins`);
+    res.redirect(getOnDoneRedirect(req));
   })
 );
 
@@ -1607,7 +1620,9 @@ router.get(
     );
     req.flash("success", req.__(`Module up-to-date`));
 
-    res.redirect(`/plugins/info/${encodeURIComponent(plugin.name)}`);
+    res.redirect(
+      getOnDoneRedirect(req, `/plugins/info/${encodeURIComponent(plugin.name)}`)
+    );
   })
 );
 
@@ -1790,4 +1805,4 @@ router.post(
   })
 );
 
-export { get_store_items };
+export { get_store_items, latest_supported_version };

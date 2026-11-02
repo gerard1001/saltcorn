@@ -454,6 +454,81 @@ describe("Upgrade plugin to supported version", () => {
   });
 });
 
+describe("Updates page", () => {
+  const name = "@christianhugoch/empty_sc_test_plugin_two";
+  const upgradeHref = `/plugins/upgrade-plugin/${encodeURIComponent(
+    name
+  )}?on_done_redirect=admin/updates`;
+
+  const other = "@christianhugoch/empty_sc_test_plugin";
+  // seed the npm "latest" cache so the page does not depend on a live
+  // lookup finishing inside its 1s timeout
+  const seedLatest = () =>
+    getState().setConfig("latest_npm_version", {
+      [name]: { time: new Date(), version: "0.0.3" },
+      [other]: { time: new Date(), version: "0.2.0" },
+    });
+
+  it("lists an outdated module with its latest version", async () => {
+    await setupPluginVersion(name, "0.0.1");
+    await seedLatest();
+    const loginCookie = await getAdminLoginCookie();
+    const app = await getApp({ disableCsrf: true });
+    await request(app)
+      .get("/admin/updates")
+      .set("Cookie", loginCookie)
+      .expect(toInclude("<td>Saltcorn</td>"))
+      .expect(toInclude(`${name}</a></td><td>0.0.1</td><td>0.0.3</td>`))
+      .expect(toInclude(upgradeHref))
+      .expect(toInclude("Upgrade all modules ("));
+  });
+
+  it("shows the latest supported version, not the newest published", async () => {
+    // 0.2.0 is published but requires a newer Saltcorn; 0.1.0 is the
+    // newest this version supports
+    await setupPluginVersion(other, "0.0.1");
+    await seedLatest();
+    const loginCookie = await getAdminLoginCookie();
+    const app = await getApp({ disableCsrf: true });
+    const res = await request(app)
+      .get("/admin/updates")
+      .set("Cookie", loginCookie);
+    expect(res.text).toMatch(
+      new RegExp(`${other}</a></td><td>[^<]*</td><td>0\\.1\\.0</td>`)
+    );
+  });
+
+  it("upgrades one module and returns to the Updates page", async () => {
+    const loginCookie = await getAdminLoginCookie();
+    const app = await getApp({ disableCsrf: true });
+    await request(app)
+      .get(upgradeHref)
+      .set("Cookie", loginCookie)
+      .expect(toRedirect("/admin/updates"));
+    const upgraded = await Plugin.findOne({ name });
+    expect(upgraded.version).toBe("0.0.3");
+    await seedLatest();
+    await request(app)
+      .get("/admin/updates")
+      .set("Cookie", loginCookie)
+      .expect(toInclude(`${name}</a></td><td>0.0.3</td><td>0.0.3</td>`))
+      .expect(toNotInclude(upgradeHref));
+  });
+
+  it("refreshes the version cache", async () => {
+    const loginCookie = await getAdminLoginCookie();
+    const app = await getApp({ disableCsrf: true });
+    await getState().setConfig("latest_npm_version", {
+      [name]: { time: new Date(), version: "0.0.3" },
+    });
+    await request(app)
+      .post("/admin/updates/check")
+      .set("Cookie", loginCookie)
+      .expect(toRedirect("/admin/updates"));
+    expect(getState().getConfig("latest_npm_version", {})).toEqual({});
+  });
+});
+
 describe("install a different version dialog", () => {
   it("sends the dialog", async () => {
     const loginCookie = await getAdminLoginCookie();

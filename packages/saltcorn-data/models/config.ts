@@ -1979,6 +1979,23 @@ const save_menu_items = async (menu_items: any[]): Promise<void> => {
 const npm_registry_url = (pkg: string) =>
   `${process.env.SALTCORN_NPM_REGISTRY || "https://registry.npmjs.org"}/${pkg}`;
 
+// Cache writes are queued so each read-merge-write starts from the previous
+// one's result. setConfig only updates the in-memory value after its database
+// write, so lookups finishing together would otherwise each merge into the
+// same stale copy and overwrite one another's entries.
+let latest_npm_version_writes: Promise<void> = Promise.resolve();
+const store_latest_npm_version = (pkg: string, version: string) => {
+  const write = latest_npm_version_writes.then(async () => {
+    const stored = getState()!.getConfigCopy("latest_npm_version", {});
+    await getState()!.setConfig("latest_npm_version", {
+      ...stored,
+      [pkg]: { time: new Date(), version },
+    });
+  });
+  latest_npm_version_writes = write.catch(() => {});
+  return write;
+};
+
 const get_latest_npm_version = async (
   pkg: string,
   timeout_ms?: number
@@ -2007,11 +2024,7 @@ const get_latest_npm_version = async (
       // `npm install pkg@latest` installs
       const keys = Object.keys(data.versions);
       const latest = data["dist-tags"]?.latest || keys[keys.length - 1];
-      const stored1 = getState()!.getConfigCopy("latest_npm_version", {});
-      await getState()!.setConfig("latest_npm_version", {
-        ...stored1,
-        [pkg]: { time: new Date(), version: latest },
-      });
+      await store_latest_npm_version(pkg, latest);
       return latest;
     };
 

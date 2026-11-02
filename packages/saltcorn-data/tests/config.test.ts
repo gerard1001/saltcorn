@@ -30,19 +30,36 @@ afterAll(db.close);
 // against the real registry, so any network hiccup in CI failed the assertion.
 let registryServer: Server | undefined;
 const registryRequests: string[] = [];
+// when set, replies are held until this many requests have arrived and then
+// sent together, so concurrent lookups finish at the same moment
+let holdRepliesUntil = 0;
+let heldReplies: (() => void)[] = [];
 
 beforeAll(async () => {
   await resetSchemaMod();
   await fixturesMod();
   const server = createServer((req, res) => {
     registryRequests.push(req.url!);
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(
-      JSON.stringify({
-        "dist-tags": { latest: "1.3.0", next: "1.4.0-beta.1" },
-        versions: { "1.0.0": {}, "1.1.0": {}, "1.3.0": {}, "1.4.0-beta.1": {} },
-      })
-    );
+    const reply = () => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          "dist-tags": { latest: "1.3.0", next: "1.4.0-beta.1" },
+          versions: {
+            "1.0.0": {},
+            "1.1.0": {},
+            "1.3.0": {},
+            "1.4.0-beta.1": {},
+          },
+        })
+      );
+    };
+    if (!holdRepliesUntil) return reply();
+    heldReplies.push(reply);
+    if (heldReplies.length >= holdRepliesUntil) {
+      heldReplies.forEach((r) => r());
+      heldReplies = [];
+    }
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   registryServer = server;
@@ -134,5 +151,20 @@ describe("Config", () => {
     expect(registryRequests).toStrictEqual(["/left-pad"]);
     const stored = getState()!.getConfig("latest_npm_version", {});
     expect(stored["left-pad"].version).toBe("1.3.0");
+  });
+  it("keeps every entry when lookups finish together", async () => {
+    await getState()!.deleteConfig("latest_npm_version");
+    const pkgs = ["pkg-a", "pkg-b", "pkg-c", "pkg-d", "pkg-e"];
+    holdRepliesUntil = pkgs.length;
+    try {
+      const versions = await Promise.all(
+        pkgs.map((p) => get_latest_npm_version(p))
+      );
+      expect(versions).toStrictEqual(pkgs.map(() => "1.3.0"));
+    } finally {
+      holdRepliesUntil = 0;
+    }
+    const stored = getState()!.getConfig("latest_npm_version", {});
+    expect(Object.keys(stored).sort()).toStrictEqual(pkgs);
   });
 });
